@@ -1,4 +1,4 @@
-# picolor
+# PiColor 🎨
 
 PiColor is a smart ambient light, color, and brightness sensor based on the Raspberry Pi Pico, utilizing a TCS34725 sensor and NeoPixel LEDs. 
 
