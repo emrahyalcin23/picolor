@@ -25,6 +25,13 @@
 // TCS34725_INTEGRATIONTIME_50MS, _154MS, _700MS gibi...
 #define ENTEGRASYON_SURESI TCS34725_INTEGRATIONTIME_50MS
 
+// --- ÇIKTI NORMALİZASYON SABİTLERİ ---
+// Teorik maksimum kalibre değer: ham_maks × maks_renk_katsayısı × maks_ışık_katsayısı
+// = 65535 × 2.0 × 2.0 = 262140  (wR/wG/wB ve wL'nin tümü +1.0 olduğunda)
+#define NORM_INPUT_MAX  (65535.0f * 2.0f * 2.0f)  // = 262140.0
+#define NORM_OUTPUT_MIN 0.0f
+#define NORM_OUTPUT_MAX 100.0f
+
 // Sensör nesnesini makrolar ile başlatıyoruz
 Adafruit_TCS34725 tcs = Adafruit_TCS34725(ENTEGRASYON_SURESI, 
                         (KAZANC_ORANI == 1)  ? TCS34725_GAIN_1X :
@@ -74,9 +81,22 @@ void getCalibratedColor(float &cR, float &cG, float &cB) {
     float g_factor = 1.0 + wG; if (g_factor < 0.05) g_factor = 0.05;
     float b_factor = 1.0 + wB; if (b_factor < 0.05) b_factor = 0.05;
 
-    cR = (r * r_factor) * l_factor;
-    cG = (g * g_factor) * l_factor;
-    cB = (b * b_factor) * l_factor;
+    // cR = (r * r_factor) * l_factor;
+    // cG = (g * g_factor) * l_factor;
+    // cB = (b * b_factor) * l_factor;
+    
+    // Ham değeri kalibre et, ardından 0-100 aralığına normalize et
+    // Referans maks = NORM_INPUT_MAX (262140), aşanlar NORM_OUTPUT_MAX'a kesilir
+    cR = (r * r_factor) * l_factor / NORM_INPUT_MAX * NORM_OUTPUT_MAX;
+    cG = (g * g_factor) * l_factor / NORM_INPUT_MAX * NORM_OUTPUT_MAX;
+    cB = (b * b_factor) * l_factor / NORM_INPUT_MAX * NORM_OUTPUT_MAX;
+ 
+    if (cR > NORM_OUTPUT_MAX) cR = NORM_OUTPUT_MAX;
+    if (cG > NORM_OUTPUT_MAX) cG = NORM_OUTPUT_MAX;
+    if (cB > NORM_OUTPUT_MAX) cB = NORM_OUTPUT_MAX;
+    if (cR < NORM_OUTPUT_MIN) cR = NORM_OUTPUT_MIN;
+    if (cG < NORM_OUTPUT_MIN) cG = NORM_OUTPUT_MIN;
+    if (cB < NORM_OUTPUT_MIN) cB = NORM_OUTPUT_MIN;
 }
 
 // --- DONANIMSAL KESME (ENCODER ISR) ---
@@ -232,11 +252,29 @@ void loop() {
             // Parametreli bir komut gelirse canlı akışı (stream) hemen durdur
             testModeActive = false; 
             
-            String param = cmd.substring(4);
-            int minutes = param.toInt();
+            int reqSeconds = 0;
 
-            if (minutes == 0) {
-                // OKU_0: Sadece o anki değeri TEK SEFERLİK gönder
+            // 1. Durum: Saniye bazlı okuma isteniyorsa (Örn: OKU_S30)
+            if (cmd.startsWith("OKU_S")) {
+                String param = cmd.substring(5); // "OKU_S" kısmı 5 karakter olduğu için 5'ten sonrasını al
+                reqSeconds = param.toInt();
+                
+                // Güvenlik sınırı: Havuzumuz maksimum 900 saniye (15 dk) alabiliyor
+                if (reqSeconds > MAX_HISTORY_SECONDS) reqSeconds = MAX_HISTORY_SECONDS; 
+            } 
+            // 2. Durum: Dakika bazlı okuma isteniyorsa (Örn: OKU_10)
+            else {
+                String param = cmd.substring(4); // "OKU_" kısmı 4 karakter olduğu için 4'ten sonrasını al
+                int minutes = param.toInt();
+                
+                if (minutes > 15) minutes = 15; // 15 dakika güvenlik sınırı
+                reqSeconds = minutes * 60;      // Dakikayı saniyeye çevir
+            }
+
+            // --- Bundan sonrası eski kodunla birebir aynı ---
+
+            if (reqSeconds == 0) {
+                // OKU_0 veya OKU_S0: Sadece o anki değeri TEK SEFERLİK gönder
                 float cR, cG, cB;
                 getCalibratedColor(cR, cG, cB);
                 Serial.print("ANLIK TEK OKUMA => R:"); Serial.print(cR, 0);
@@ -244,10 +282,7 @@ void loop() {
                 Serial.print(" B:"); Serial.println(cB, 0);
             } 
             else {
-                // OKU_X: X dakikalık ortalamayı TEK SEFERLİK gönder
-                if (minutes > 15) minutes = 15; // 15 dakika güvenlik sınırı
-
-                int reqSeconds = minutes * 60;
+                // İstenen saniye kadar ortalamayı TEK SEFERLİK gönder
                 int calcSeconds = (reqSeconds > histCount) ? histCount : reqSeconds; 
                 
                 if (calcSeconds == 0) {
@@ -264,7 +299,7 @@ void loop() {
                         sumB += histB[idx];
                     }
 
-                    // Debug için ; 
+                    // Debug için;
                     // Serial.print("ORTALAMA (Son "); Serial.print(calcSeconds); Serial.print(" Sn) => ");
                     Serial.print("R:"); Serial.print(sumR / calcSeconds, 0);
                     Serial.print(" G:"); Serial.print(sumG / calcSeconds, 0);
