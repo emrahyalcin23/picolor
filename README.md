@@ -13,6 +13,20 @@ While its primary focus is real-time ambient color and light analysis, it also f
 * **Short-Term Memory (15-Minute Rolling Buffer):** Stores calibrated color data in RAM every second, allowing you to fetch historical average data.
 * **Visual Feedback:** Dynamically visualizes the calibration state and standby/active modes via an 8-LED NeoPixel strip/ring.
 
+## 📊 Output Value Range
+ 
+All calibrated RGB outputs (`OKU`, `OKU_0`, `OKU_X`) are normalized to **0–100**.
+ 
+| Constant | Value | Description |
+|---|---|---|
+| `NORM_INPUT_MAX` | 65535 × 2.0 × 2.0 = **262140** | Theoretical max calibrated value (raw max × max color factor × max light factor) |
+| `NORM_OUTPUT_MIN` | **0** | Minimum output value |
+| `NORM_OUTPUT_MAX` | **100** | Maximum output value |
+ 
+- Designed for **indoor ambient light** conditions.
+- Values exceeding 262140 are clamped to 100.
+- The `RAW` command returns uncalibrated 16-bit sensor values (0–65535).
+ 
 
 # PiColor [TÜRKÇE] 🎨
 
@@ -28,3 +42,18 @@ Ana odak noktası gerçek zamanlı ortam rengi ve ışık analizi olmakla birlik
 * **Otomatik Cihaz Tanıma (Handshake):** `KIMSIN` komutuna benzersiz bir yanıt dönerek seri port çakışmalarını önler ve bilgisayar yazılımının doğru cihazı otomatik olarak bulmasını sağlar.
 * **Kısa Süreli Hafıza (15 Dakikalık Veri Havuzu):** Kalibre edilmiş renk verilerini her saniye RAM üzerinde depolayarak geçmişe dönük ortalama verileri çekmenize olanak tanır.
 * **Görsel Geri Bildirim:** 8'li NeoPixel LED şerit/halka üzerinden kalibrasyon durumunu ve bekleme/aktif modları dinamik olarak görselleştirir.
+
+
+## 📊 Çıktı Değer Aralığı
+ 
+Tüm kalibre edilmiş RGB çıktıları (`OKU`, `OKU_0`, `OKU_X`) **0–100** aralığına normalize edilir.
+ 
+| Sabit | Değer | Açıklama |
+|---|---|---|
+| `NORM_INPUT_MAX` | 65535 × 2.0 × 2.0 = **262140** | Teorik maksimum kalibre değer (ham maks × maks renk katsayısı × maks ışık katsayısı) |
+| `NORM_OUTPUT_MIN` | **0** | Minimum çıktı değeri |
+| `NORM_OUTPUT_MAX` | **100** | Maksimum çıktı değeri |
+ 
+- **İç mekan** ortam ışığı koşulları için tasarlanmıştır.
+- 262140 değerini aşan değerler 100 ile kesilir.
+- `RAW` komutu kalibre edilmemiş 16-bit ham sensör değerlerini döndürür (0–65535).
