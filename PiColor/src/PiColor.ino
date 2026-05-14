@@ -507,7 +507,11 @@ void getCalibratedColor(float &cR, float &cG, float &cB, int secim) {
  * sdCardAvailable ve sdCardMounted bayraklarını günceller.
  */
 void initSDCard() {
-    SPI.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
+    SPI.setRX(SD_MISO_PIN);
+    SPI.setTX(SD_MOSI_PIN);
+    SPI.setSCK(SD_SCK_PIN);
+    SPI.setCS(SD_CS_PIN);
+    SPI.begin();
 
     if (!SD.begin(SD_CS_PIN)) {
         sdCardAvailable = false;
