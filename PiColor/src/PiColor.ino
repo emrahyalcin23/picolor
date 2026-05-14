@@ -26,6 +26,10 @@
  *          4=STATUS  5=ERROR  6=DUAL  7=FULL
  *  mode  → 0=STABIL  1=DINAMIK
  *
+ *  İşlenmiş RGB değerleri (0–100): BASAMAK_<n> ile ondalık basamak,
+ *  LOGARITMIK ile Weber-Fechner log dönüşümü uygulanır.
+ *  Ham (RAW) değerler, lüks ve katsayılar ölçekten etkilenmez.
+ *
  * KOMUT LİSTESİ (YARDIM / HELP)
  * ------------------------------
  *  KIMSIN                      kimlik
@@ -67,6 +71,14 @@
  *  DUAL_AKIS                   canlı dual akış
  *  STABIL_DUAL_AKIS            canlı dual akış — stabil mod
  *  DINAMIK_DUAL_AKIS           canlı dual akış — dinamik mod
+ *
+ *  BASAMAK_<n>                 ondalık basamak sayısı (0–6); varsayılan: 1
+ *  LOGARITMIK                  Weber-Fechner log ölçeği aç (mevcut dekad)
+ *  LOGARITMIK_<n>              log ölçeği aç + dekad ayarla 1.0–5.0
+ *                                  2 → 100:1  3 → 1000:1 (önerilen)  4 → 10000:1
+ *  LINEER                      lineer ölçeğe dön (dönüşüm yok)
+ *  VARSAYILAN / DEFAULT        fabrika ayarı: decimals=1, lineer ölçek
+ *  OLCEK / SCALE               mevcut format ayarlarını göster
  *
  *  TEST                        sistem testini çalıştır
  *  YARDIM / HELP               bu yardım ekranı
