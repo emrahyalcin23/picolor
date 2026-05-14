@@ -1433,18 +1433,34 @@ void processCommand(String cmd) {
 }
 
 /*
+ * isReadCommand
+ * -------------
+ * Token sensör verisi üreten bir okuma komutu mu?
+ * STABIL_/DINAMIK_ önekleri görmezden gelinir.
+ * handleSerialCommands'ın iki geçişli sıralaması için kullanılır.
+ */
+bool isReadCommand(const String &token) {
+    String t = token;
+    if      (t.startsWith("STABIL_"))  t = t.substring(7);
+    else if (t.startsWith("DINAMIK_")) t = t.substring(8);
+
+    if (t == "OKU" || (t.startsWith("OKU_") && t != "OKU_STOP")) return true;
+    if (t == "RAW")                                               return true;
+    if (t == "DUAL_OKU" || t.startsWith("DUAL_OKU_S") || t == "DUAL_AKIS") return true;
+    if (t == "TUM" || t == "ALL")                                return true;
+    return false;
+}
+
+/*
  * handleSerialCommands
  * --------------------
  * Seri porttan bir satır okur, büyük harfe çevirir ve boşluk/virgülle
- * tokenlara böler. Her token processCommand() ile ayrı ayrı işlenir.
+ * tokenlara böler. İki geçişli sıralama uygulanır:
+ *   1. geçiş: ayar komutları (soldan sağa)
+ *   2. geçiş: okuma komutları (soldan sağa)
  *
- * Ayırıcılar: boşluk ( ) ve virgül (,) — birden fazla art arda ayırıcı
- * boş token üretmez.
- *
- * Örnekler (tek satır, sıralı işlenir):
- *   BASAMAK_2 LOGARITMIK_3 OKU_S1
- *   VARSAYILAN,OKU_0
- *   STABIL_OKU_S30 OLCEK
+ * Böylece "OKU_S1 BASAMAK_2 LOGARITMIK_3" gönderilse bile önce
+ * BASAMAK_2 ve LOGARITMIK_3 ayarlanır, ardından OKU_S1 çalışır.
  */
 void handleSerialCommands() {
     if (Serial.available() == 0) return;
@@ -1454,16 +1470,26 @@ void handleSerialCommands() {
     line.toUpperCase();
     if (line.length() == 0) return;
 
+    String tokens[16];
+    int    tokenCount = 0;
+
     int start = 0;
     int len   = line.length();
-    for (int i = 0; i <= len; i++) {
+    for (int i = 0; i <= len && tokenCount < 16; i++) {
         char c = (i < len) ? line.charAt(i) : ' '; // sentinel
         if (c == ' ' || c == ',') {
-            if (i > start) {
-                processCommand(line.substring(start, i));
-            }
+            if (i > start) tokens[tokenCount++] = line.substring(start, i);
             start = i + 1;
         }
+    }
+
+    // 1. geçiş: ayar komutları
+    for (int i = 0; i < tokenCount; i++) {
+        if (!isReadCommand(tokens[i])) processCommand(tokens[i]);
+    }
+    // 2. geçiş: okuma komutları
+    for (int i = 0; i < tokenCount; i++) {
+        if (isReadCommand(tokens[i])) processCommand(tokens[i]);
     }
 }
 
