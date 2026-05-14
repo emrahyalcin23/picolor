@@ -1,120 +1,877 @@
 /*
- * PiColor - Smart ambient light & color analyzer System
+ * ============================================================
+ * PiColor - Smart Ambient Light & Color Analyzer System
  * Copyright (c) 2026 Emrah YALÇIN
- * * This software is released under the MIT License.
- * https://opensource.org/licenses/MIT
+ * MIT License — https://opensource.org/licenses/MIT
+ * ------------------------------------------------------------
+ * VERSİYON : d5
+ * TANIM    : D2 (kararlı temel) + D4 (SD kart, lüks, TUM)
+ *            birleşimi. Tüm hatalar giderilmiş, d2 davranışı
+ *            korunmuş, eksik özellikler tamamlanmıştır.
+ * ============================================================
+ *
+ * DONANIM
+ * -------
+ *  TCS34725  → I2C  SDA=4  SCL=5
+ *  TCS LED   → GPIO 15  (aktif-LOW)
+ *  Encoder   → CLK=16  DT=17  SW=18  (INPUT_PULLUP)
+ *  NeoPixel  → GPIO 28  (8 LED, GRB 800 kHz)
+ *  SD kart   → SPI  CS=1  SCK=2  MOSI=3  MISO=0
+ *
+ * ÇIKTI PROTOKOLÜ (tüm satırlar bu formatı kullanır)
+ * ---------------------------------------------------
+ *  timestamp ; type ; mode ; ... [; meta]
+ *
+ *  type  → 0=LIVE  1=SINGLE  2=AVERAGE  3=RAW
+ *          4=STATUS  5=ERROR  6=DUAL  7=FULL
+ *  mode  → 0=STABIL  1=DINAMIK
+ *
+ * KOMUT LİSTESİ (YARDIM / HELP)
+ * ------------------------------
+ *  KIMSIN                      kimlik
+ *  MOD                         mevcut modu göster
+ *  MOD_STABIL / MOD_DINAMIK    global modu değiştir
+ *  KATSAYILAR / COEFF          wR wG wB wL değerlerini göster
+ *  SIFIRLA / RESET             katsayıları ve maxObserved'ü sıfırla
+ *  TAMPON / BUFFER             tampon doluluk bilgisi
+ *  TAMPON_SIL / BUFFER_CLEAR   tamponu temizle
+ *  TUM / ALL                   tek seferde tüm veri (FULL formatı)
+ *  SD_DURUM / SD_STATUS        SD kart durumu
+ *  SD_AKTAR / SD_EXPORT        tamponu SD'ye CSV olarak yaz
+ *  SDCARD_YAZ_AKTIF            her örnekte SD'ye otomatik kayıt AÇ
+ *  SDCARD_YAZ_PASIF            her örnekte SD'ye otomatik kayıt KAPAT
+ *
+ *  OKU                         canlı akışı başlat (global mod)
+ *  OKU_STOP                    canlı akışı durdur
+ *  OKU_0                       tek anlık okuma (global mod)
+ *  OKU_S<n>                    son n SANİYE ortalaması  (örn. OKU_S60)
+ *  OKU_<m>                     son m DAKİKA ortalaması  (örn. OKU_15)
+ *  RAW                         ham sensör değerleri
+ *
+ *  STABIL_OKU                  canlı akış — stabil mod (geçici override)
+ *  STABIL_OKU_0                tek okuma  — stabil mod
+ *  STABIL_OKU_S<n>             n saniyelik ortalama — stabil mod
+ *  STABIL_OKU_<m>              m dakikalık ortalama — stabil mod
+ *  DINAMIK_OKU                 canlı akış — dinamik mod (geçici override)
+ *  DINAMIK_OKU_0               tek okuma  — dinamik mod
+ *  DINAMIK_OKU_S<n>            n saniyelik ortalama — dinamik mod
+ *  DINAMIK_OKU_<m>             m dakikalık ortalama — dinamik mod
+ *
+ *  DUAL_MODE_ON / OFF          dual çıktı modunu aç/kapat
+ *  DUAL_OKU                    tek dual okuma (ham + işlenmiş)
+ *  DUAL_OKU_S<n>               n saniyelik dual ortalama
+ *  STABIL_DUAL_OKU             tek dual okuma — stabil mod
+ *  STABIL_DUAL_OKU_S<n>        n saniyelik dual ortalama — stabil mod
+ *  DINAMIK_DUAL_OKU            tek dual okuma — dinamik mod
+ *  DINAMIK_DUAL_OKU_S<n>       n saniyelik dual ortalama — dinamik mod
+ *  DUAL_AKIS                   canlı dual akış
+ *  STABIL_DUAL_AKIS            canlı dual akış — stabil mod
+ *  DINAMIK_DUAL_AKIS           canlı dual akış — dinamik mod
+ *
+ *  TEST                        sistem testini çalıştır
+ *  YARDIM / HELP               bu yardım ekranı
+ * ============================================================
  */
+
 #include <Wire.h>
 #include <Adafruit_TCS34725.h>
 #include <Adafruit_NeoPixel.h>
+#include <SD.h>
+#include <SPI.h>
 
-// --- PIN TANIMLAMALARI ---
-#define TCS_LED_PIN 15 
-#define ENC_CLK_PIN 16 
-#define ENC_DT_PIN 17  
-#define ENC_SW_PIN 18  
-#define NEO_PIN 28     
-#define NEO_COUNT 8    
-#define LONG_PRESS_TIME 1000 
+// ============================================================
+// PIN TANIMLAMALARI
+// ============================================================
 
-// --- KAZANÇ VE HASSASİYET TANIMLAMALARI ---
-// Seçenekler: 1, 4, 16, 60 (TCS34725 donanımsal limitleri)
-#define KAZANC_ORANI 4 
+#define TCS_LED_PIN     15   // TCS34725 beyaz LED — aktif-LOW
+#define ENC_CLK_PIN     16   // Encoder A kanalı (CLK) — kesme pini
+#define ENC_DT_PIN      17   // Encoder B kanalı (DT)
+#define ENC_SW_PIN      18   // Encoder butonu
+#define NEO_PIN         28   // NeoPixel veri hattı
+#define NEO_COUNT        8   // Şeritteki LED sayısı
+#define LONG_PRESS_TIME 1000 // Uzun basış eşiği (ms)
 
-// Entegrasyon süresi (Işık toplama süresi): 
-// TCS34725_INTEGRATIONTIME_50MS, _154MS, _700MS gibi...
+// SD kart SPI pinleri
+#define SD_CS_PIN    1
+#define SD_SCK_PIN   2
+#define SD_MOSI_PIN  3
+#define SD_MISO_PIN  0
+
+// ============================================================
+// SENSÖR KAZANIM VE ENTEGRASYON SÜRESİ
+// ============================================================
+
+// Kazanım: 1, 4, 16 veya 60 — TCS34725 donanımsal limitleri
+#define KAZANC_ORANI       4
+// Entegrasyon süresi: ışık toplama penceresi
 #define ENTEGRASYON_SURESI TCS34725_INTEGRATIONTIME_50MS
 
-// --- ÇIKTI NORMALİZASYON SABİTLERİ ---
-// Teorik maksimum kalibre değer: ham_maks × maks_renk_katsayısı × maks_ışık_katsayısı
-// = 65535 × 2.0 × 2.0 = 262140  (wR/wG/wB ve wL'nin tümü +1.0 olduğunda)
-#define NORM_INPUT_MAX  (65535.0f * 2.0f * 2.0f)  // = 262140.0
+// ============================================================
+// NORMALİZASYON SABİTLERİ
+// ============================================================
+
+// Stabil modda 0–100 normalleştirmesi için referans maksimum.
+// Oda ortamı için 1000 uygundur; gerekirse değiştirin.
+const float NORM_INPUT_MAX  = 1000.0f;
 #define NORM_OUTPUT_MIN 0.0f
 #define NORM_OUTPUT_MAX 100.0f
 
-// Sensör nesnesini makrolar ile başlatıyoruz
-Adafruit_TCS34725 tcs = Adafruit_TCS34725(ENTEGRASYON_SURESI, 
-                        (KAZANC_ORANI == 1)  ? TCS34725_GAIN_1X :
-                        (KAZANC_ORANI == 16) ? TCS34725_GAIN_16X :
-                        (KAZANC_ORANI == 60) ? TCS34725_GAIN_60X : 
-                                               TCS34725_GAIN_4X);
+// ============================================================
+// SENSÖR VE LED NESNELERİ
+// ============================================================
 
-// Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_50MS, TCS34725_GAIN_4X);
+// TCS34725 sensörü — kazanım seçimi derleme zamanında yapılır
+Adafruit_TCS34725 tcs = Adafruit_TCS34725(
+    ENTEGRASYON_SURESI,
+    (KAZANC_ORANI == 1)  ? TCS34725_GAIN_1X  :
+    (KAZANC_ORANI == 16) ? TCS34725_GAIN_16X :
+    (KAZANC_ORANI == 60) ? TCS34725_GAIN_60X :
+                           TCS34725_GAIN_4X
+);
 
+// NeoPixel şeridi — GRB sırası, 800 kHz
 Adafruit_NeoPixel strip(NEO_COUNT, NEO_PIN, NEO_GRB + NEO_KHZ800);
+
+// ============================================================
+// DURUM MAKİNESİ — Encoder hangi kanalı ayarlıyor
+// ============================================================
 
 enum State { STATE_R, STATE_G, STATE_B, STATE_L };
 State currentState = STATE_R;
 
-// --- KATSAYILAR VE DONANIM DEĞİŞKENLERİ ---
-volatile float wR = 0.0, wG = 0.0, wB = 0.0, wL = 0.0;
-volatile unsigned long lastPulseTime = 0; 
-volatile bool encoderMoved = false;
+// ============================================================
+// KALİBRASYON KATSAYILARI (encoder ile ayarlanır)
+// Aralık: [-1.0, +1.0]
+// Kullanım: kalibre_deger = ham * (1 + w) * (1 + wL)
+// ============================================================
 
-// --- ZAMAN VE UYKU DEĞİŞKENLERİ ---
-float beklemeSuresiCevirme = 1.0; 
-float beklemeSuresiTiklama = 3.0; 
-unsigned long gecerliUykuSuresi = 1000; 
-unsigned long lastActivityTime = 0;
-unsigned long lastButtonPress = 0;
-bool ledsActive = false;
+volatile float wR = 0.0f; // Kırmızı kanal ağırlığı
+volatile float wG = 0.0f; // Yeşil kanal ağırlığı
+volatile float wB = 0.0f; // Mavi kanal ağırlığı
+volatile float wL = 0.0f; // Işık (genel parlaklık) ağırlığı
 
-// --- VERİ HAVUZU (15 DAKİKALIK RAM TAMPONU) ---
-#define MAX_HISTORY_SECONDS 900 
-float histR[MAX_HISTORY_SECONDS];
-float histG[MAX_HISTORY_SECONDS];
-float histB[MAX_HISTORY_SECONDS];
-int histIndex = 0;       // Sıradaki yazılacak konum
-int histCount = 0;       // Havuzda biriken toplam saniye miktarı (İlk açılışta 900'e kadar artar)
-unsigned long lastSampleTime = 0;
+// ============================================================
+// ENCODER ZAMANLAMA — ISR tarafından kullanılır
+// ============================================================
 
-// --- ÇALIŞMA MODLARI ---
-bool testModeActive = false; // Başlangıçta sessiz modda bekle
+volatile unsigned long lastPulseTime = 0; // Son darbe zamanı (ms)
+volatile bool          encoderMoved  = false; // Loop'a bildirim bayrağı
 
-// --- YARDIMCI FONKSİYON: KALİBRE EDİLMİŞ VERİYİ HESAPLA ---
-void getCalibratedColor(float &cR, float &cG, float &cB) {
+// ============================================================
+// UYKU / AKTİVİTE YÖNETİMİ
+// ============================================================
+
+float         beklemeSuresiCevirme = 1.0f; // Çevirme sonrası LED söner (s)
+float         beklemeSuresiTiklama = 3.0f; // Basış sonrası LED söner (s)
+unsigned long gecerliUykuSuresi    = 1000; // Hesaplanan uyku süresi (ms)
+unsigned long lastActivityTime     = 0;   // Son aktivite zamanı
+unsigned long lastButtonPress      = 0;   // Son buton basış zamanı
+bool          ledsActive           = false; // LED'ler şu an açık mı?
+
+// ============================================================
+// VERİ TAMPONU — son 15 dakika (900 saniye) RAM'de tutulur
+// ============================================================
+
+#define MAX_HISTORY_SECONDS 900
+
+// İşlenmiş (normalize edilmiş, 0–100) değerler
+float    histR[MAX_HISTORY_SECONDS];
+float    histG[MAX_HISTORY_SECONDS];
+float    histB[MAX_HISTORY_SECONDS];
+
+// Ham (uint16_t, sensörden gelen) değerler
+uint16_t histRawR[MAX_HISTORY_SECONDS];
+uint16_t histRawG[MAX_HISTORY_SECONDS];
+uint16_t histRawB[MAX_HISTORY_SECONDS];
+uint16_t histRawC[MAX_HISTORY_SECONDS]; // Clear (beyaz) kanal
+
+int           histIndex    = 0; // Bir sonraki yazılacak konum (dairesel)
+int           histCount    = 0; // Tamponda biriken örnek sayısı (maks 900)
+unsigned long lastSampleTime = 0; // Son örnekleme zamanı
+
+// ============================================================
+// ÇALIŞMA MOD DEĞİŞKENLERİ
+// ============================================================
+
+bool  testModeActive  = false; // Canlı akış aktif mi?
+bool  dualOutputActive = true; // Dual çıktı modu (ham + işlenmiş)
+int   calibMode       = 0;    // 0=STABIL  1=DINAMIK
+float maxObserved     = 1000.0f; // Dinamik mod için gözlemlenen maksimum
+
+// ============================================================
+// SD KART DEĞİŞKENLERİ
+// ============================================================
+
+bool        sdCardAvailable  = false; // SD kart fiziksel olarak mevcut mu?
+bool        sdCardMounted    = false; // SD başarıyla mount edildi mi?
+bool        sdAutoLog        = false; // Her örnekte otomatik CSV yazma aktif mi?
+const char* CSV_FILENAME     = "/picolor_data.csv"; // Ana kayıt dosyası
+
+// ============================================================
+// ÇIKTI TİPİ ENUM
+// ============================================================
+
+enum OutputType {
+    OUT_LIVE    = 0, // Canlı akış satırı
+    OUT_SINGLE  = 1, // Tek okuma
+    OUT_AVERAGE = 2, // Ortalama okuma
+    OUT_RAW     = 3, // Ham sensör verisi
+    OUT_STATUS  = 4, // Durum mesajı
+    OUT_ERROR   = 5, // Hata mesajı
+    OUT_DUAL    = 6, // Hem ham hem işlenmiş
+    OUT_FULL    = 7  // TUM komutu için tam veri paketi
+};
+
+// ============================================================
+// ========== STANDART ÇIKTI FONKSİYONLARI ===================
+// ============================================================
+
+/*
+ * printStandardOutput
+ * -------------------
+ * Tüm tek-değer (işlenmiş veya ham) çıktılar bu fonksiyondan geçer.
+ * Format: timestamp;type;mode;v1;v2;v3[;meta]
+ *
+ * RAW    tipinde v1/v2/v3 integer olarak yazılır.
+ * STATUS/ERROR tipinde v1/v2/v3 yerine "0;0;0" yazılır, meta zorunludur.
+ * Diğer tiplerde 1 ondalık float yazılır.
+ */
+void printStandardOutput(OutputType type, int mode,
+                         float v1, float v2, float v3,
+                         const char* meta = "") {
+    unsigned long ts = millis();
+
+    Serial.print(ts);         Serial.print(';');
+    Serial.print((int)type);  Serial.print(';');
+    Serial.print(mode);       Serial.print(';');
+
+    if (type == OUT_RAW) {
+        Serial.print((int)v1); Serial.print(';');
+        Serial.print((int)v2); Serial.print(';');
+        Serial.print((int)v3);
+    } else if (type == OUT_STATUS || type == OUT_ERROR) {
+        Serial.print("0;0;0");
+    } else {
+        Serial.print(v1, 1); Serial.print(';');
+        Serial.print(v2, 1); Serial.print(';');
+        Serial.print(v3, 1);
+    }
+
+    if (meta != nullptr && strlen(meta) > 0) {
+        Serial.print(';');
+        Serial.print(meta);
+    }
+    Serial.println();
+}
+
+// String overload — meta için String kabul eder
+void printStandardOutput(OutputType type, int mode,
+                         float v1, float v2, float v3,
+                         const String& meta) {
+    printStandardOutput(type, mode, v1, v2, v3, meta.c_str());
+}
+
+/*
+ * printStatusMessage
+ * ------------------
+ * Durum bildirimleri için kısayol.
+ * Format: timestamp;4;mode;0;0;0;message
+ */
+void printStatusMessage(int mode, const char* message) {
+    printStandardOutput(OUT_STATUS, mode, 0, 0, 0, message);
+}
+
+/*
+ * printErrorMessage
+ * -----------------
+ * Hata bildirimleri için kısayol.
+ * Format: timestamp;5;mode;0;0;0;error
+ */
+void printErrorMessage(int mode, const char* error) {
+    printStandardOutput(OUT_ERROR, mode, 0, 0, 0, error);
+}
+
+/*
+ * printDualOutput
+ * ---------------
+ * Hem ham (uint16_t) hem işlenmiş (float, 0–100) veriyi tek satırda yazar.
+ * Format: timestamp;type;mode;raw_r;raw_g;raw_b;raw_c;proc_r;proc_g;proc_b[;meta]
+ */
+void printDualOutput(OutputType type, int mode,
+                     uint16_t raw_r, uint16_t raw_g, uint16_t raw_b, uint16_t raw_c,
+                     float proc_r, float proc_g, float proc_b,
+                     const char* meta = "") {
+    unsigned long ts = millis();
+
+    Serial.print(ts);         Serial.print(';');
+    Serial.print((int)type);  Serial.print(';');
+    Serial.print(mode);       Serial.print(';');
+
+    Serial.print(raw_r);  Serial.print(';');
+    Serial.print(raw_g);  Serial.print(';');
+    Serial.print(raw_b);  Serial.print(';');
+    Serial.print(raw_c);  Serial.print(';');
+
+    Serial.print(proc_r, 1); Serial.print(';');
+    Serial.print(proc_g, 1); Serial.print(';');
+    Serial.print(proc_b, 1);
+
+    if (strlen(meta) > 0) {
+        Serial.print(';');
+        Serial.print(meta);
+    }
+    Serial.println();
+}
+
+// String overload
+void printDualOutput(OutputType type, int mode,
+                     uint16_t raw_r, uint16_t raw_g, uint16_t raw_b, uint16_t raw_c,
+                     float proc_r, float proc_g, float proc_b,
+                     const String& meta) {
+    printDualOutput(type, mode, raw_r, raw_g, raw_b, raw_c,
+                    proc_r, proc_g, proc_b, meta.c_str());
+}
+
+// ============================================================
+// ========== LÜKS VE RENK SICAKLIĞI HESABI ==================
+// ============================================================
+
+/*
+ * calculateLuxAndTemp
+ * -------------------
+ * TCS34725 için DN40 tabanlı lüks formülü ve basit renk sıcaklığı tahmini.
+ * raw_c == 0 ise güvenli varsayılan değerler döndürür.
+ *
+ * lux        : hesaplanan parlaklık (lüks)
+ * colorTemp  : tahmini renk sıcaklığı (Kelvin, 2000–10000 aralığında kırpılır)
+ */
+void calculateLuxAndTemp(uint16_t raw_r, uint16_t raw_g, uint16_t raw_b, uint16_t raw_c,
+                         float &lux, int &colorTemp) {
+    if (raw_c > 0) {
+        lux = (-0.32466f * raw_r) + (1.57837f * raw_g) + (-0.73191f * raw_b);
+        if (lux < 0) lux = 0;
+
+        float r_norm = (float)raw_r / raw_c;
+        float g_norm = (float)raw_g / raw_c;
+
+        if (g_norm > 0) {
+            colorTemp = (int)(4000 + (r_norm - g_norm) * 5000);
+            if (colorTemp < 2000)  colorTemp = 2000;
+            if (colorTemp > 10000) colorTemp = 10000;
+        } else {
+            colorTemp = 5000;
+        }
+    } else {
+        lux       = 0;
+        colorTemp = 5000;
+    }
+}
+
+// ============================================================
+// ========== KALİBRE EDİLMİŞ RENK FONKSİYONLARI ============
+// ============================================================
+
+/*
+ * getCalibratedColor_stabil
+ * -------------------------
+ * Sabit NORM_INPUT_MAX referansıyla normalize eder.
+ * Işık koşulları değişse de ölçek sabittir — karşılaştırmalı ölçümler
+ * için tercih edilir.
+ *
+ * Faktör hesabı: kalibre = ham * (1 + w_kanal) * (1 + wL)
+ * Normalize    : 0–100 = kalibre / NORM_INPUT_MAX * 100
+ * Güvenlik     : tüm faktörler minimum 0.05'e kırpılır (sıfır bölme önlemi)
+ */
+void getCalibratedColor_stabil(float &cR, float &cG, float &cB) {
     uint16_t r, g, b, c;
     tcs.getRawData(&r, &g, &b, &c);
 
-    float l_factor = 1.0 + wL; if (l_factor < 0.05) l_factor = 0.05;
-    float r_factor = 1.0 + wR; if (r_factor < 0.05) r_factor = 0.05;
-    float g_factor = 1.0 + wG; if (g_factor < 0.05) g_factor = 0.05;
-    float b_factor = 1.0 + wB; if (b_factor < 0.05) b_factor = 0.05;
+    float l_factor = 1.0f + wL; if (l_factor < 0.05f) l_factor = 0.05f;
+    float r_factor = 1.0f + wR; if (r_factor < 0.05f) r_factor = 0.05f;
+    float g_factor = 1.0f + wG; if (g_factor < 0.05f) g_factor = 0.05f;
+    float b_factor = 1.0f + wB; if (b_factor < 0.05f) b_factor = 0.05f;
 
-    // cR = (r * r_factor) * l_factor;
-    // cG = (g * g_factor) * l_factor;
-    // cB = (b * b_factor) * l_factor;
-    
-    // Ham değeri kalibre et, ardından 0-100 aralığına normalize et
-    // Referans maks = NORM_INPUT_MAX (262140), aşanlar NORM_OUTPUT_MAX'a kesilir
-    cR = (r * r_factor) * l_factor / NORM_INPUT_MAX * NORM_OUTPUT_MAX;
-    cG = (g * g_factor) * l_factor / NORM_INPUT_MAX * NORM_OUTPUT_MAX;
-    cB = (b * b_factor) * l_factor / NORM_INPUT_MAX * NORM_OUTPUT_MAX;
- 
-    if (cR > NORM_OUTPUT_MAX) cR = NORM_OUTPUT_MAX;
-    if (cG > NORM_OUTPUT_MAX) cG = NORM_OUTPUT_MAX;
-    if (cB > NORM_OUTPUT_MAX) cB = NORM_OUTPUT_MAX;
-    if (cR < NORM_OUTPUT_MIN) cR = NORM_OUTPUT_MIN;
-    if (cG < NORM_OUTPUT_MIN) cG = NORM_OUTPUT_MIN;
-    if (cB < NORM_OUTPUT_MIN) cB = NORM_OUTPUT_MIN;
+    float calR = (r * r_factor) * l_factor;
+    float calG = (g * g_factor) * l_factor;
+    float calB = (b * b_factor) * l_factor;
+
+    cR = (calR / NORM_INPUT_MAX) * 100.0f;
+    cG = (calG / NORM_INPUT_MAX) * 100.0f;
+    cB = (calB / NORM_INPUT_MAX) * 100.0f;
+
+    cR = constrain(cR, 0.0f, 100.0f);
+    cG = constrain(cG, 0.0f, 100.0f);
+    cB = constrain(cB, 0.0f, 100.0f);
 }
 
-// --- DONANIMSAL KESME (ENCODER ISR) ---
+/*
+ * getCalibratedColor_dinamik
+ * --------------------------
+ * Gözlemlenen maksimuma göre otomatik ölçeklenir.
+ * Yüksek ışıkta tam skala, düşük ışıkta hassas çözünürlük sağlar.
+ *
+ * maxObserved güncelleme: yeni maksimum bulunursa %10 pay eklenmiş
+ * olarak güncellenir; her dakika %5 azaltılarak adaptasyon sağlanır.
+ * Alt sınır: 1000.0  Üst sınır: 65535 * 4 (teorik maks)
+ */
+void getCalibratedColor_dinamik(float &cR, float &cG, float &cB) {
+    uint16_t r, g, b, c;
+    tcs.getRawData(&r, &g, &b, &c);
+
+    float l_factor = 1.0f + wL; if (l_factor < 0.05f) l_factor = 0.05f;
+    float r_factor = 1.0f + wR; if (r_factor < 0.05f) r_factor = 0.05f;
+    float g_factor = 1.0f + wG; if (g_factor < 0.05f) g_factor = 0.05f;
+    float b_factor = 1.0f + wB; if (b_factor < 0.05f) b_factor = 0.05f;
+
+    float calR = (r * r_factor) * l_factor;
+    float calG = (g * g_factor) * l_factor;
+    float calB = (b * b_factor) * l_factor;
+
+    float currentMax = max(calR, max(calG, calB));
+
+    if (currentMax > maxObserved) {
+        maxObserved = currentMax * 1.1f;
+        if (maxObserved > 65535.0f * 4.0f) maxObserved = 65535.0f * 4.0f;
+    }
+
+    static unsigned long lastDecay = 0;
+    if (millis() - lastDecay > 60000UL) {
+        lastDecay = millis();
+        maxObserved *= 0.95f;
+        if (maxObserved < 1000.0f) maxObserved = 1000.0f;
+    }
+
+    cR = constrain((calR / maxObserved) * 100.0f, 0.0f, 100.0f);
+    cG = constrain((calG / maxObserved) * 100.0f, 0.0f, 100.0f);
+    cB = constrain((calB / maxObserved) * 100.0f, 0.0f, 100.0f);
+}
+
+/*
+ * getCalibratedColor
+ * ------------------
+ * secim == 0 → stabil, secim == 1 → dinamik.
+ * Global calibMode'u DEĞİŞTİRMEZ — anlık override için kullanılır.
+ * Bilinmeyen secim değerinde stabil mod uygulanır.
+ */
+void getCalibratedColor(float &cR, float &cG, float &cB, int secim) {
+    if (secim == 1) {
+        getCalibratedColor_dinamik(cR, cG, cB);
+    } else {
+        getCalibratedColor_stabil(cR, cG, cB);
+    }
+}
+
+// ============================================================
+// ========== SD KART FONKSİYONLARI ==========================
+// ============================================================
+
+/*
+ * initSDCard
+ * ----------
+ * SPI pinlerini ayarlar ve SD kütüphanesini başlatır.
+ * Başarılıysa CSV başlık satırını oluşturur (dosya yoksa).
+ * sdCardAvailable ve sdCardMounted bayraklarını günceller.
+ */
+void initSDCard() {
+    SPI.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
+
+    if (!SD.begin(SD_CS_PIN)) {
+        sdCardAvailable = false;
+        sdCardMounted   = false;
+        printStatusMessage(calibMode, "SD_CARD_NOT_FOUND");
+        return;
+    }
+
+    sdCardAvailable = true;
+    sdCardMounted   = true;
+    printStatusMessage(calibMode, "SD_CARD_MOUNTED");
+
+    // CSV dosyası yoksa başlık satırı oluştur
+    if (!SD.exists(CSV_FILENAME)) {
+        File f = SD.open(CSV_FILENAME, FILE_WRITE);
+        if (f) {
+            f.println("timestamp_ms,raw_r,raw_g,raw_b,raw_c,"
+                      "proc_r,proc_g,proc_b,lux,color_temp_k,"
+                      "wR,wG,wB,wL,state,mode");
+            f.close();
+            printStatusMessage(calibMode, "SD_CSV_HEADER_WRITTEN");
+        }
+    }
+}
+
+/*
+ * appendToCSV
+ * -----------
+ * Tek bir ölçüm satırını SD karttaki CSV dosyasına ekler.
+ * sdAutoLog false ise bu fonksiyon hiçbir şey yapmaz.
+ * Her çağrıda SD.open/close yapılır — bu yavaştır, ancak güçten
+ * düşme durumunda veri kaybını önler. sdAutoLog'u dikkatli kullanın.
+ */
+void appendToCSV(uint16_t r, uint16_t g, uint16_t b, uint16_t c,
+                 float pr, float pg, float pb, float lux, int colorTemp) {
+    if (!sdCardAvailable || !sdCardMounted || !sdAutoLog) return;
+
+    File f = SD.open(CSV_FILENAME, FILE_WRITE);
+    if (!f) return;
+
+    const char* stateNames[] = {"R", "G", "B", "L"};
+    const char* modeStr = (calibMode == 0) ? "STABIL" : "DINAMIK";
+
+    f.printf("%lu,%d,%d,%d,%d,%.1f,%.1f,%.1f,%.2f,%d,"
+             "%.2f,%.2f,%.2f,%.2f,%s,%s\n",
+             millis(), r, g, b, c, pr, pg, pb, lux, colorTemp,
+             wR, wG, wB, wL, stateNames[currentState], modeStr);
+    f.close();
+}
+
+/*
+ * exportBufferToSD
+ * ----------------
+ * RAM tamponundaki tüm örnekleri ayrı bir dosyaya yazar.
+ * Dosya adı: /export_<millis>.csv
+ * SD kart yoksa veya tampon boşsa hata mesajı gönderir.
+ * Büyük tamponlarda her 50 satırda bir flush yapılır.
+ */
+void exportBufferToSD() {
+    if (!sdCardAvailable || !sdCardMounted) {
+        printErrorMessage(calibMode, "SD_CARD_NOT_FOUND");
+        return;
+    }
+    if (histCount == 0) {
+        printErrorMessage(calibMode, "BUFFER_EMPTY");
+        return;
+    }
+
+    char filename[32];
+    snprintf(filename, sizeof(filename), "/export_%lu.csv", millis());
+
+    File f = SD.open(filename, FILE_WRITE);
+    if (!f) {
+        printErrorMessage(calibMode, "CANNOT_CREATE_FILE");
+        return;
+    }
+
+    f.println("timestamp_ms,raw_r,raw_g,raw_b,raw_c,"
+              "proc_r,proc_g,proc_b,lux,color_temp_k,"
+              "wR,wG,wB,wL,state,mode");
+
+    const char* stateNames[] = {"R", "G", "B", "L"};
+    const char* modeStr = (calibMode == 0) ? "STABIL" : "DINAMIK";
+    int startIdx = (histIndex - histCount + MAX_HISTORY_SECONDS) % MAX_HISTORY_SECONDS;
+
+    for (int i = 0; i < histCount; i++) {
+        int idx = (startIdx + i) % MAX_HISTORY_SECONDS;
+
+        float lux;
+        int   colorTemp;
+        calculateLuxAndTemp(histRawR[idx], histRawG[idx],
+                            histRawB[idx], histRawC[idx], lux, colorTemp);
+
+        // Gerçek zaman damgası bilinmediğinden örnekleme indeksi * 1000 ms kullanılır
+        f.printf("%lu,%d,%d,%d,%d,%.1f,%.1f,%.1f,%.2f,%d,"
+                 "%.2f,%.2f,%.2f,%.2f,%s,%s\n",
+                 (unsigned long)(i * 1000),
+                 histRawR[idx], histRawG[idx], histRawB[idx], histRawC[idx],
+                 histR[idx], histG[idx], histB[idx], lux, colorTemp,
+                 wR, wG, wB, wL, stateNames[currentState], modeStr);
+
+        if (i % 50 == 0) f.flush();
+    }
+    f.close();
+
+    char meta[64];
+    snprintf(meta, sizeof(meta), "EXPORTED_TO_SD,rows=%d,file=%s", histCount, filename);
+    printStatusMessage(calibMode, meta);
+}
+
+// ============================================================
+// ========== OKUMA FONKSİYONLARI ============================
+// ============================================================
+
+/*
+ * sendSingleReading
+ * -----------------
+ * Tek anlık ölçüm. secim ile anlık mod override edilebilir.
+ * Format: OUT_SINGLE
+ */
+void sendSingleReading(int mode) {
+    float cR, cG, cB;
+    getCalibratedColor(cR, cG, cB, mode);
+    printStandardOutput(OUT_SINGLE, mode, cR, cG, cB);
+}
+
+/*
+ * sendAverageReading
+ * ------------------
+ * Son 'seconds' saniyelik işlenmiş değerlerin ortalamasını gönderir.
+ * seconds, histCount ile kırpılır — yetersiz veri varsa hata döner.
+ * Format: OUT_AVERAGE, meta: "interval=<n>"
+ */
+void sendAverageReading(int seconds, int mode) {
+    int calcSeconds = (seconds > histCount) ? histCount : seconds;
+
+    if (calcSeconds == 0) {
+        printErrorMessage(mode, "INSUFFICIENT_DATA");
+        return;
+    }
+
+    float sumR = 0, sumG = 0, sumB = 0;
+    for (int i = 0; i < calcSeconds; i++) {
+        int idx = histIndex - 1 - i;
+        if (idx < 0) idx += MAX_HISTORY_SECONDS;
+        sumR += histR[idx];
+        sumG += histG[idx];
+        sumB += histB[idx];
+    }
+
+    char meta[32];
+    snprintf(meta, sizeof(meta), "interval=%d", calcSeconds);
+    printStandardOutput(OUT_AVERAGE, mode,
+                        sumR / calcSeconds, sumG / calcSeconds, sumB / calcSeconds, meta);
+}
+
+/*
+ * sendSingleDualReading
+ * ---------------------
+ * Tek anlık ölçüm — hem ham hem işlenmiş.
+ * Format: OUT_SINGLE (dual), meta: "single_dual"
+ */
+void sendSingleDualReading(int mode) {
+    uint16_t r, g, b, c;
+    tcs.getRawData(&r, &g, &b, &c);
+
+    float cR, cG, cB;
+    getCalibratedColor(cR, cG, cB, mode);
+
+    printDualOutput(OUT_SINGLE, mode, r, g, b, c, cR, cG, cB, "single_dual");
+}
+
+/*
+ * sendAverageDualReading
+ * ----------------------
+ * Son 'seconds' saniyelik hem ham hem işlenmiş ortalamayı gönderir.
+ * Ham değerlerin toplamı uint32_t ile tutulur (taşma önlemi).
+ * Format: OUT_AVERAGE (dual), meta: "average_dual,interval=<n>"
+ */
+void sendAverageDualReading(int seconds, int mode) {
+    int calcSeconds = (seconds > histCount) ? histCount : seconds;
+
+    if (calcSeconds == 0) {
+        printErrorMessage(mode, "INSUFFICIENT_DATA");
+        return;
+    }
+
+    float    sumProcR = 0, sumProcG = 0, sumProcB = 0;
+    uint32_t sumRawR  = 0, sumRawG  = 0, sumRawB  = 0, sumRawC = 0;
+
+    for (int i = 0; i < calcSeconds; i++) {
+        int idx = histIndex - 1 - i;
+        if (idx < 0) idx += MAX_HISTORY_SECONDS;
+
+        sumProcR += histR[idx];
+        sumProcG += histG[idx];
+        sumProcB += histB[idx];
+
+        sumRawR += histRawR[idx];
+        sumRawG += histRawG[idx];
+        sumRawB += histRawB[idx];
+        sumRawC += histRawC[idx];
+    }
+
+    char meta[64];
+    snprintf(meta, sizeof(meta), "average_dual,interval=%d", calcSeconds);
+
+    printDualOutput(OUT_AVERAGE, mode,
+                    (uint16_t)(sumRawR / calcSeconds),
+                    (uint16_t)(sumRawG / calcSeconds),
+                    (uint16_t)(sumRawB / calcSeconds),
+                    (uint16_t)(sumRawC / calcSeconds),
+                    sumProcR / calcSeconds,
+                    sumProcG / calcSeconds,
+                    sumProcB / calcSeconds,
+                    meta);
+}
+
+/*
+ * startLiveStream
+ * ---------------
+ * Canlı akışı başlatır. testModeActive = true yapar.
+ * Global calibMode bu komutla değişir (kalıcı).
+ */
+void startLiveStream(int mode) {
+    testModeActive = true;
+    calibMode      = mode;
+
+    char meta[48];
+    snprintf(meta, sizeof(meta), "LIVE_START_MODE=%s", (mode == 0) ? "STABIL" : "DINAMIK");
+    printStatusMessage(mode, meta);
+}
+
+/*
+ * startLiveDualStream
+ * -------------------
+ * Dual canlı akışı başlatır. testModeActive = true yapar.
+ * Global calibMode bu komutla değişir (kalıcı).
+ */
+void startLiveDualStream(int mode) {
+    testModeActive = true;
+    calibMode      = mode;
+
+    char meta[64];
+    snprintf(meta, sizeof(meta), "LIVE_DUAL_START,mode=%s", (mode == 0) ? "STABIL" : "DINAMIK");
+    printStatusMessage(mode, meta);
+}
+
+/*
+ * stopLiveStream
+ * --------------
+ * Canlı akışı durdurur. testModeActive = false yapar.
+ */
+void stopLiveStream() {
+    testModeActive = false;
+    printStatusMessage(calibMode, "LIVE_STOP");
+}
+
+// ============================================================
+// ========== FULL VERİ (TUM / ALL) ==========================
+// ============================================================
+
+/*
+ * sendFullData
+ * ------------
+ * Tek seferde anlık ölçüm + 60s/300s/900s ortalamaları + sistem
+ * durumunu gönderir.
+ *
+ * Ortalamalar matematiksel: histCount kadar örnek kullanılır,
+ * üst sınırlar 60, 300, 900 ile kırpılır. Tampon dolmamışsa
+ * gerçek örnek sayısı kadar ortalama hesaplanır.
+ *
+ * Format: timestamp;FULL;mode;<anlık ham+işlenmiş+lüks+katsayı+state>
+ *         ;<60s ort>;<300s ort>;<900s ort>;<tampon istatistikleri>
+ *
+ * NOT: Bu satır standart type enum dışındadır ("FULL" string kullanır)
+ *      — mevcut PC ayrıştırıcısıyla uyumluluk için korunmuştur.
+ */
+void sendFullData() {
+    uint16_t r, g, b, c;
+    tcs.getRawData(&r, &g, &b, &c);
+
+    float proc_r, proc_g, proc_b;
+    getCalibratedColor(proc_r, proc_g, proc_b, calibMode);
+
+    float lux;
+    int   colorTemp;
+    calculateLuxAndTemp(r, g, b, c, lux, colorTemp);
+
+    const char* stateNames[] = {"R", "G", "B", "L"};
+    const char* modeStr      = (calibMode == 0) ? "STABIL" : "DINAMIK";
+
+    // --- Ortalama hesapları (matematiksel, hardcoded değil) ---
+    int cnt60  = min(60,  histCount);
+    int cnt300 = min(300, histCount);
+    int cnt900 = min(900, histCount);
+
+    float avg60_r  = 0, avg60_g  = 0, avg60_b  = 0;
+    float avg300_r = 0, avg300_g = 0, avg300_b = 0;
+    float avg900_r = 0, avg900_g = 0, avg900_b = 0;
+
+    for (int i = 0; i < cnt900; i++) {
+        int idx = (histIndex - 1 - i + MAX_HISTORY_SECONDS) % MAX_HISTORY_SECONDS;
+        float vr = histR[idx], vg = histG[idx], vb = histB[idx];
+
+        if (i < cnt60)  { avg60_r  += vr; avg60_g  += vg; avg60_b  += vb; }
+        if (i < cnt300) { avg300_r += vr; avg300_g += vg; avg300_b += vb; }
+        avg900_r += vr; avg900_g += vg; avg900_b += vb;
+    }
+
+    if (cnt60  > 0) { avg60_r  /= cnt60;  avg60_g  /= cnt60;  avg60_b  /= cnt60;  }
+    if (cnt300 > 0) { avg300_r /= cnt300; avg300_g /= cnt300; avg300_b /= cnt300; }
+    if (cnt900 > 0) { avg900_r /= cnt900; avg900_g /= cnt900; avg900_b /= cnt900; }
+
+    // --- Çıktı ---
+    unsigned long ts = millis();
+    Serial.print(ts); Serial.print(";FULL;"); Serial.print(calibMode); Serial.print(";");
+
+    // Anlık ham
+    Serial.print(r);   Serial.print(";");
+    Serial.print(g);   Serial.print(";");
+    Serial.print(b);   Serial.print(";");
+    Serial.print(c);   Serial.print(";");
+    // Anlık işlenmiş
+    Serial.print(proc_r, 1); Serial.print(";");
+    Serial.print(proc_g, 1); Serial.print(";");
+    Serial.print(proc_b, 1); Serial.print(";");
+    // Lüks ve renk sıcaklığı
+    Serial.print(lux, 2);    Serial.print(";");
+    Serial.print(colorTemp); Serial.print(";");
+    // Katsayılar
+    Serial.print(wR, 2); Serial.print(";");
+    Serial.print(wG, 2); Serial.print(";");
+    Serial.print(wB, 2); Serial.print(";");
+    Serial.print(wL, 2); Serial.print(";");
+    // Durum
+    Serial.print(stateNames[currentState]); Serial.print(";");
+    Serial.print(modeStr);                  Serial.print(";");
+    // 60s ortalama
+    Serial.print(avg60_r,  1); Serial.print(";");
+    Serial.print(avg60_g,  1); Serial.print(";");
+    Serial.print(avg60_b,  1); Serial.print(";");
+    // 300s ortalama
+    Serial.print(avg300_r, 1); Serial.print(";");
+    Serial.print(avg300_g, 1); Serial.print(";");
+    Serial.print(avg300_b, 1); Serial.print(";");
+    // 900s ortalama
+    Serial.print(avg900_r, 1); Serial.print(";");
+    Serial.print(avg900_g, 1); Serial.print(";");
+    Serial.print(avg900_b, 1); Serial.print(";");
+    // Tampon istatistikleri
+    Serial.print(histCount);                              Serial.print(";");
+    Serial.print(MAX_HISTORY_SECONDS);                    Serial.print(";");
+    Serial.print((histCount * 100) / MAX_HISTORY_SECONDS); Serial.print(";");
+    // Sistem bayrakları
+    Serial.print(maxObserved, 1);         Serial.print(";");
+    Serial.print(sdCardAvailable ? "1" : "0"); Serial.print(";");
+    Serial.print(sdAutoLog       ? "1" : "0"); Serial.print(";");
+    Serial.print(testModeActive  ? "1" : "0"); Serial.print(";");
+    Serial.print(dualOutputActive? "1" : "0");
+    Serial.println();
+}
+
+// ============================================================
+// ========== DONANIM — ENCODER ISR ==========================
+// ============================================================
+
+/*
+ * encoderISR
+ * ----------
+ * CLK FALLING kenarında tetiklenen donanım kesmesi.
+ *
+ * Parazit filtresi: 15 ms altındaki darbeler yok sayılır.
+ * Hız uyarlamalı adım:
+ *   deltaT < 40 ms  → adım = 0.20  (hızlı çevirme)
+ *   deltaT < 80 ms  → adım = 0.10  (orta hız)
+ *   deltaT >= 80 ms → adım = 0.05  (yavaş/hassas)
+ *
+ * Yön: DT LOW → negatif adım (sola), HIGH → pozitif adım (sağa)
+ * Aralık: [-1.0, +1.0] — hard clamp uygulanır
+ *
+ * encoderMoved bayrağı loop()'a aktivite bildirmek için kullanılır.
+ */
 void encoderISR() {
     unsigned long currentMillis = millis();
-    unsigned long deltaT = currentMillis - lastPulseTime;
-    
-    if (deltaT < 15) return; // 15ms Katı Parazit Filtresi
+    unsigned long deltaT        = currentMillis - lastPulseTime;
 
-    int dtState = digitalRead(ENC_DT_PIN);
-    float step = 0.05;
+    if (deltaT < 15) return; // Parazit filtresi
 
-    if (deltaT < 40) step = 0.20;
-    else if (deltaT < 80) step = 0.10;
+    int   dtState = digitalRead(ENC_DT_PIN);
+    float step    = 0.05f;
+
+    if      (deltaT < 40) step = 0.20f;
+    else if (deltaT < 80) step = 0.10f;
 
     if (dtState == LOW) step = -step;
 
-    float tempVal = 0.0;
+    float tempVal = 0.0f;
     switch (currentState) {
         case STATE_R: tempVal = wR + step; break;
         case STATE_G: tempVal = wG + step; break;
@@ -122,8 +879,8 @@ void encoderISR() {
         case STATE_L: tempVal = wL + step; break;
     }
 
-    if (tempVal > 1.0) tempVal = 1.0;
-    if (tempVal < -1.0) tempVal = -1.0;
+    if (tempVal >  1.0f) tempVal =  1.0f;
+    if (tempVal < -1.0f) tempVal = -1.0f;
 
     switch (currentState) {
         case STATE_R: wR = tempVal; break;
@@ -131,220 +888,656 @@ void encoderISR() {
         case STATE_B: wB = tempVal; break;
         case STATE_L: wL = tempVal; break;
     }
-    
+
     lastPulseTime = currentMillis;
-    encoderMoved = true;
+    encoderMoved  = true;
 }
 
-void setup() {
-    Serial.begin(115200);
-    
-    pinMode(TCS_LED_PIN, OUTPUT);
-    digitalWrite(TCS_LED_PIN, LOW);
+// ============================================================
+// ========== LED GÖRSELLEŞTİRME ============================
+// ============================================================
 
-    Wire.setSDA(4);
-    Wire.setSCL(5);
-    Wire.begin();
-    if(!tcs.begin()) {
-        Serial.println("Sensör Bulunamadı!");
+/*
+ * updateLEDs
+ * ----------
+ * Mevcut state için seçili kanalın (wR/wG/wB/wL) değerini
+ * NeoPixel şeridine yansıtır.
+ *
+ * norm = (w + 1) / 2  → [0.0, 1.0] aralığına taşır
+ * numLeds = 1 + norm * (NEO_COUNT-1)  → kaç LED yanar
+ * br = 30 + norm*225  → parlaklık (30–255)
+ * w  = norm * 150     → beyaz karışım
+ *
+ * Kanal renkleri: R=(br,w,w)  G=(w,br,w)  B=(w,w,br)  L=(br,br,br)
+ * Bu mantık d2 ile birebir aynıdır.
+ */
+void updateLEDs() {
+    float val = 0.0f;
+    if      (currentState == STATE_R) val = wR;
+    else if (currentState == STATE_G) val = wG;
+    else if (currentState == STATE_B) val = wB;
+    else                              val = wL;
+
+    float norm    = (val + 1.0f) / 2.0f;
+    int   numLeds = (int)(norm * (NEO_COUNT - 1)) + 1;
+    int   br      = (int)(30 + norm * 225);
+    int   w       = (int)(norm * 150);
+
+    strip.clear();
+    for (int i = 0; i < numLeds; i++) {
+        if      (currentState == STATE_R) strip.setPixelColor(i, strip.Color(br, w,  w ));
+        else if (currentState == STATE_G) strip.setPixelColor(i, strip.Color(w,  br, w ));
+        else if (currentState == STATE_B) strip.setPixelColor(i, strip.Color(w,  w,  br));
+        else                              strip.setPixelColor(i, strip.Color(br, br, br));
+    }
+    strip.show();
+    ledsActive = true;
+}
+
+// ============================================================
+// ========== KOMUT AYRIŞTIRICILARI ==========================
+// ============================================================
+
+/*
+ * extractModeFromCommand
+ * ----------------------
+ * Komutun başında "STABIL_" veya "DINAMIK_" öneki varsa öneki
+ * soyar ve useMode'u ayarlar. Önek yoksa useMode = calibMode.
+ *
+ * Örn: "STABIL_OKU_S30" → cmd="OKU_S30", useMode=0
+ *      "DINAMIK_OKU_0"  → cmd="OKU_0",   useMode=1
+ *      "OKU_S30"        → cmd="OKU_S30",  useMode=calibMode
+ *
+ * UYARI: Global calibMode değiştirilmez — sadece useMode döner.
+ */
+void extractModeFromCommand(String &cmd, int &useMode) {
+    useMode = calibMode; // varsayılan
+
+    if (cmd.startsWith("STABIL_")) {
+        useMode = 0;
+        cmd = cmd.substring(7);
+    } else if (cmd.startsWith("DINAMIK_")) {
+        useMode = 1;
+        cmd = cmd.substring(8);
+    }
+}
+
+/*
+ * parseTimeParameter
+ * ------------------
+ * OKU_S<n>  → saniye cinsinden n değeri döner
+ * OKU_<m>   → dakikayı saniyeye çevirir (m * 60), üst sınır 900 sn
+ * OKU_0     → 0 döner (tek anlık okuma)
+ *
+ * Üst sınır MAX_HISTORY_SECONDS (900) ile kırpılır.
+ * seconds referans parametresi olarak döner.
+ */
+void parseTimeParameter(const String &cmd, int &seconds) {
+    seconds = 0;
+
+    if (cmd == "OKU_0") {
+        seconds = 0;
+    } else if (cmd.startsWith("OKU_S")) {
+        // "OKU_S" = 5 karakter, sonrası sayı
+        seconds = cmd.substring(5).toInt();
+        if (seconds > MAX_HISTORY_SECONDS) seconds = MAX_HISTORY_SECONDS;
+    } else if (cmd.startsWith("OKU_")) {
+        // "OKU_" = 4 karakter, sonrası dakika
+        int minutes = cmd.substring(4).toInt();
+        seconds = minutes * 60;
+        if (seconds > MAX_HISTORY_SECONDS) seconds = MAX_HISTORY_SECONDS;
+    }
+}
+
+/*
+ * parseDualTimeParameter
+ * ----------------------
+ * DUAL_OKU_S<n> komutları için saniye değeri ayıklar.
+ * "DUAL_OKU_S" = 10 karakter.
+ */
+void parseDualTimeParameter(const String &cmd, int &seconds) {
+    seconds = 0;
+    // "DUAL_OKU_S" 10 karakter
+    int idx = cmd.indexOf("_S");
+    if (idx >= 0) {
+        seconds = cmd.substring(idx + 2).toInt();
+        if (seconds > MAX_HISTORY_SECONDS) seconds = MAX_HISTORY_SECONDS;
+    }
+}
+
+// ============================================================
+// ========== YARDIMCI KOMUT FONKSİYONLARI ===================
+// ============================================================
+
+/*
+ * setCalibrationMode
+ * ------------------
+ * Global calibMode'u değiştirir ve durum mesajı gönderir.
+ * Geçersiz değer için hata mesajı üretir.
+ */
+void setCalibrationMode(int mode) {
+    if (mode == 0) {
+        calibMode = 0;
+        printStatusMessage(calibMode, "MODE=STABIL");
+    } else if (mode == 1) {
+        calibMode = 1;
+        printStatusMessage(calibMode, "MODE=DINAMIK");
+    } else {
+        printErrorMessage(calibMode, "INVALID_MODE");
+    }
+}
+
+/*
+ * showCurrentMode
+ * ---------------
+ * Mevcut global modu seri porta bildirir.
+ */
+void showCurrentMode() {
+    char meta[32];
+    snprintf(meta, sizeof(meta), "CURRENT_MODE=%s", (calibMode == 0) ? "STABIL" : "DINAMIK");
+    printStatusMessage(calibMode, meta);
+}
+
+/*
+ * showCoefficients
+ * ----------------
+ * wR/wG/wB/wL değerlerini seri porta gönderir.
+ */
+void showCoefficients() {
+    char meta[64];
+    snprintf(meta, sizeof(meta), "wR=%.2f,wG=%.2f,wB=%.2f,wL=%.2f", wR, wG, wB, wL);
+    printStatusMessage(calibMode, meta);
+}
+
+/*
+ * resetCoefficients
+ * -----------------
+ * Tüm kalibrasyon katsayılarını ve dinamik maksimumu başlangıç
+ * değerlerine döndürür, LED'leri günceller.
+ */
+void resetCoefficients() {
+    wR = wG = wB = wL = 0.0f;
+    maxObserved = 1000.0f;
+    updateLEDs();
+    printStatusMessage(calibMode, "COEFFICIENTS_RESET");
+}
+
+/*
+ * showBufferStatus
+ * ----------------
+ * Tampon doluluk bilgisini seri porta gönderir.
+ */
+void showBufferStatus() {
+    char meta[64];
+    snprintf(meta, sizeof(meta), "count=%d,capacity=%d,usage=%d%%",
+             histCount, MAX_HISTORY_SECONDS,
+             (histCount * 100) / MAX_HISTORY_SECONDS);
+    printStatusMessage(calibMode, meta);
+}
+
+/*
+ * clearBuffer
+ * -----------
+ * Tampon sayaçlarını sıfırlar (veri silinmez, üzerine yazılır).
+ */
+void clearBuffer() {
+    histCount = 0;
+    histIndex = 0;
+    printStatusMessage(calibMode, "BUFFER_CLEARED");
+}
+
+/*
+ * showSDStatus
+ * ------------
+ * SD kart bağlantı durumunu ve otomatik kayıt durumunu bildirir.
+ */
+void showSDStatus() {
+    char meta[64];
+    snprintf(meta, sizeof(meta), "available=%d,mounted=%d,auto_log=%d",
+             sdCardAvailable, sdCardMounted, sdAutoLog ? 1 : 0);
+    printStatusMessage(calibMode, meta);
+}
+
+/*
+ * showHelp
+ * --------
+ * Tüm komutları HELP_REQUESTED durum mesajının ardından düz metin
+ * olarak listeler. Düz metin satırları standart format dışındadır
+ * ancak sadece insan okuyucusu için tasarlanmıştır; ayrıştırıcı
+ * bu satırları tip kontrolüyle ayırt edebilir.
+ */
+void showHelp() {
+    printStatusMessage(calibMode, "HELP_REQUESTED");
+
+    Serial.println("\n=== PICOLOR KOMUTLARI ===");
+    Serial.println("KIMSIN                   kimlik");
+    Serial.println("MOD                      mevcut modu goster");
+    Serial.println("MOD_STABIL               stabil moda gec (kalici)");
+    Serial.println("MOD_DINAMIK              dinamik moda gec (kalici)");
+    Serial.println("KATSAYILAR / COEFF       katsayi goster");
+    Serial.println("SIFIRLA / RESET          katsayilari sifirla");
+    Serial.println("TAMPON / BUFFER          tampon doluluk");
+    Serial.println("TAMPON_SIL / BUFFER_CLEAR tampon temizle");
+    Serial.println("TUM / ALL                tam veri paketi");
+    Serial.println("SD_DURUM / SD_STATUS     SD kart durumu");
+    Serial.println("SD_AKTAR / SD_EXPORT     tamponu SD'ye aktar");
+    Serial.println("SDCARD_YAZ_AKTIF         otomatik CSV kayit AC");
+    Serial.println("SDCARD_YAZ_PASIF         otomatik CSV kayit KAPAT");
+    Serial.println("");
+    Serial.println("OKU                      canli akis baslat");
+    Serial.println("OKU_STOP                 canli akis durdur");
+    Serial.println("OKU_0                    tek okuma");
+    Serial.println("OKU_S<n>                 son n saniye ortalamasi");
+    Serial.println("OKU_<m>                  son m dakika ortalamasi");
+    Serial.println("RAW                      ham sensor degerleri");
+    Serial.println("");
+    Serial.println("STABIL_OKU[_0/_S<n>/_<m>]  stabil mod override");
+    Serial.println("DINAMIK_OKU[_0/_S<n>/_<m>] dinamik mod override");
+    Serial.println("");
+    Serial.println("DUAL_MODE_ON / OFF       dual cikti modu");
+    Serial.println("DUAL_OKU                 tek dual okuma");
+    Serial.println("DUAL_OKU_S<n>            n saniyelik dual ort.");
+    Serial.println("STABIL_DUAL_OKU[_S<n>]   stabil dual override");
+    Serial.println("DINAMIK_DUAL_OKU[_S<n>]  dinamik dual override");
+    Serial.println("DUAL_AKIS                canli dual akis");
+    Serial.println("STABIL_DUAL_AKIS / DINAMIK_DUAL_AKIS");
+    Serial.println("");
+    Serial.println("YARDIM / HELP            bu ekran");
+    Serial.println("========================\n");
+}
+
+// ============================================================
+// ========== ANA SERIAL KOMUT İŞLEYİCİ =====================
+// ============================================================
+
+/*
+ * handleSerialCommands
+ * --------------------
+ * Seri porttan gelen bir satırı okur, büyük harfe çevirir ve
+ * ilgili fonksiyona yönlendirir.
+ *
+ * Önce extractModeFromCommand ile STABIL_/DINAMIK_ öneki ayrıştırılır.
+ * Kalan komut if-else zincirine girer.
+ *
+ * OKU / OKU_0 / OKU_S<n> / OKU_<m> zinciri:
+ *   - OKU_0    → tek okuma
+ *   - OKU_S<n> → n saniyelik ortalama
+ *   - OKU_<m>  → m dakikalık ortalama (parseTimeParameter halleder)
+ *   Bu üç durum parseTimeParameter tarafından saniyeye dönüştürülür;
+ *   seconds==0 ise tek okuma, >0 ise ortalama tetiklenir.
+ *
+ * DUAL_OKU_S<n> için substring(10) kullanılır:
+ *   "DUAL_OKU_S" = 10 karakter, toInt() doğru çalışır.
+ *
+ * Hiçbir dalda eşleşme olmazsa UNKNOWN_COMMAND hatası gönderilir.
+ */
+void handleSerialCommands() {
+    if (Serial.available() == 0) return;
+
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+    cmd.toUpperCase();
+    if (cmd.length() == 0) return;
+
+    // --- Mod önekini ayıkla (STABIL_ / DINAMIK_) ---
+    int useMode;
+    extractModeFromCommand(cmd, useMode);
+
+    // ====================================================
+    // TEMEL KOMUTLAR
+    // ====================================================
+    if (cmd == "KIMSIN") {
+        printStatusMessage(calibMode, "IDENTITY=PICOLOR_D5");
+    }
+    else if (cmd == "MOD") {
+        showCurrentMode();
+    }
+    else if (cmd == "MOD_STABIL") {
+        setCalibrationMode(0);
+    }
+    else if (cmd == "MOD_DINAMIK") {
+        setCalibrationMode(1);
     }
 
-    strip.begin();
-    strip.show();
+    // ====================================================
+    // KALİBRASYON
+    // ====================================================
+    else if (cmd == "KATSAYILAR" || cmd == "COEFF") {
+        showCoefficients();
+    }
+    else if (cmd == "SIFIRLA" || cmd == "RESET") {
+        resetCoefficients();
+    }
 
-    pinMode(ENC_CLK_PIN, INPUT_PULLUP);
-    pinMode(ENC_DT_PIN, INPUT_PULLUP);
-    pinMode(ENC_SW_PIN, INPUT_PULLUP);
-    
-    attachInterrupt(digitalPinToInterrupt(ENC_CLK_PIN), encoderISR, FALLING);
+    // ====================================================
+    // TAMPON
+    // ====================================================
+    else if (cmd == "TAMPON" || cmd == "BUFFER") {
+        showBufferStatus();
+    }
+    else if (cmd == "TAMPON_SIL" || cmd == "BUFFER_CLEAR") {
+        clearBuffer();
+    }
+
+    // ====================================================
+    // TAM VERİ PAKETİ
+    // ====================================================
+    else if (cmd == "TUM" || cmd == "ALL") {
+        testModeActive = false;
+        sendFullData();
+    }
+
+    // ====================================================
+    // SD KART
+    // ====================================================
+    else if (cmd == "SD_DURUM" || cmd == "SD_STATUS") {
+        showSDStatus();
+    }
+    else if (cmd == "SD_AKTAR" || cmd == "SD_EXPORT") {
+        exportBufferToSD();
+    }
+    else if (cmd == "SDCARD_YAZ_AKTIF") {
+        sdAutoLog = true;
+        printStatusMessage(calibMode, "SD_AUTO_LOG=ON");
+    }
+    else if (cmd == "SDCARD_YAZ_PASIF") {
+        sdAutoLog = false;
+        printStatusMessage(calibMode, "SD_AUTO_LOG=OFF");
+    }
+
+    // ====================================================
+    // CANLI AKIŞ
+    // ====================================================
+    else if (cmd == "OKU_STOP") {
+        stopLiveStream();
+    }
+    else if (cmd == "OKU") {
+        startLiveStream(useMode);
+    }
+
+    // ====================================================
+    // HAM VERİ
+    // ====================================================
+    else if (cmd == "RAW") {
+        testModeActive = false;
+        uint16_t r, g, b, c;
+        tcs.getRawData(&r, &g, &b, &c);
+        // İlk satır: RGB
+        printStandardOutput(OUT_RAW, calibMode, (float)r, (float)g, (float)b);
+        // İkinci satır: clear channel meta olarak
+        char meta[16];
+        snprintf(meta, sizeof(meta), "c=%d", c);
+        printStandardOutput(OUT_RAW, calibMode, (float)r, (float)g, (float)b, meta);
+    }
+
+    // ====================================================
+    // TEK ve ORTALAMA OKUMALAR (OKU_0 / OKU_S<n> / OKU_<m>)
+    // useMode ile anlık override desteklenir.
+    // ====================================================
+    else if (cmd == "OKU_0" || cmd.startsWith("OKU_S") || cmd.startsWith("OKU_")) {
+        testModeActive = false;
+        int seconds;
+        parseTimeParameter(cmd, seconds);
+
+        if (seconds == 0) {
+            sendSingleReading(useMode);
+        } else {
+            sendAverageReading(seconds, useMode);
+        }
+    }
+
+    // ====================================================
+    // DUAL MOD KONTROLÜ
+    // ====================================================
+    else if (cmd == "DUAL_MODE_ON") {
+        dualOutputActive = true;
+        printStatusMessage(calibMode, "DUAL_MODE_ENABLED");
+    }
+    else if (cmd == "DUAL_MODE_OFF") {
+        dualOutputActive = false;
+        printStatusMessage(calibMode, "DUAL_MODE_DISABLED");
+    }
+
+    // ====================================================
+    // DUAL CANLI AKIŞ
+    // ====================================================
+    else if (cmd == "DUAL_AKIS") {
+        startLiveDualStream(useMode);
+    }
+
+    // ====================================================
+    // DUAL TEK / ORTALAMA OKUMA (DUAL_OKU / DUAL_OKU_S<n>)
+    // useMode ile anlık override desteklenir.
+    // "DUAL_OKU_S" = 10 karakter; substring(10).toInt() doğrudur.
+    // ====================================================
+    else if (cmd == "DUAL_OKU") {
+        testModeActive = false;
+        sendSingleDualReading(useMode);
+    }
+    else if (cmd.startsWith("DUAL_OKU_S")) {
+        testModeActive = false;
+        int seconds = cmd.substring(10).toInt();
+        if (seconds > MAX_HISTORY_SECONDS) seconds = MAX_HISTORY_SECONDS;
+        if (seconds > 0) {
+            sendAverageDualReading(seconds, useMode);
+        } else {
+            sendSingleDualReading(useMode);
+        }
+    }
+
+    // ====================================================
+    // YARDIM
+    // ====================================================
+    else if (cmd == "YARDIM" || cmd == "HELP") {
+        showHelp();
+    }
+
+    // ====================================================
+    // BİLİNMEYEN KOMUT
+    // ====================================================
+    else {
+        printErrorMessage(calibMode, "UNKNOWN_COMMAND");
+    }
 }
 
-void loop() {
-    unsigned long currentMillis = millis();
-    static bool buttonDown = false;
+// ============================================================
+// ========== LOOP YARDIMCI FONKSİYONLARI ===================
+// ============================================================
 
-    // 1. BUTON MANTIĞI
+/*
+ * handleButtonPress
+ * -----------------
+ * Encoder butonunu her loop iterasyonunda polling ile kontrol eder.
+ * Kısa basış (>50ms, <LONG_PRESS_TIME): state döngüsü R→G→B→L→R,
+ *   uyku süresi beklemeSuresiTiklama'ya ayarlanır, LED'ler güncellenir.
+ * Uzun basış (>=LONG_PRESS_TIME): BUTTON_LONG_PRESS bildirimi.
+ */
+void handleButtonPress(unsigned long currentMillis,
+                       bool &buttonDown,
+                       unsigned long &lastButtonPressRef) {
     int sw = digitalRead(ENC_SW_PIN);
+
     if (sw == LOW) {
         if (!buttonDown) {
-            buttonDown = true;
-            lastButtonPress = currentMillis;
+            buttonDown           = true;
+            lastButtonPressRef   = currentMillis;
         }
     } else {
         if (buttonDown) {
-            unsigned long duration = currentMillis - lastButtonPress;
-            if (duration > LONG_PRESS_TIME) {
-                Serial.println(">> UZUN BASILDI (Fonksiyonu İleride Eklenecek)");
-            } else if (duration > 50) { 
-                currentState = (State)((currentState + 1) % 4);
-                gecerliUykuSuresi = beklemeSuresiTiklama * 1000; 
+            unsigned long duration = currentMillis - lastButtonPressRef;
+
+            if (duration >= (unsigned long)LONG_PRESS_TIME) {
+                printStatusMessage(calibMode, "BUTTON_LONG_PRESS");
+            } else if (duration > 50) {
+                currentState     = (State)((currentState + 1) % 4);
+                gecerliUykuSuresi = (unsigned long)(beklemeSuresiTiklama * 1000);
                 lastActivityTime = currentMillis;
                 updateLEDs();
             }
             buttonDown = false;
         }
     }
+}
 
-    // 2. ENCODER KONTROLÜ
+/*
+ * handleEncoder
+ * -------------
+ * ISR'nin set ettiği encoderMoved bayrağını kontrol eder.
+ * Bayrak aktifse uyku süresini ve aktivite zamanını günceller,
+ * LED'leri yeniler.
+ */
+void handleEncoder() {
     if (encoderMoved) {
-        encoderMoved = false; 
-        lastActivityTime = currentMillis; 
-        gecerliUykuSuresi = beklemeSuresiCevirme * 1000; 
-        updateLEDs(); 
+        encoderMoved      = false;
+        lastActivityTime  = millis();
+        gecerliUykuSuresi = (unsigned long)(beklemeSuresiCevirme * 1000);
+        updateLEDs();
     }
+}
 
-    // 3. DİNAMİK UYKU MODU
+/*
+ * handleSleepMode
+ * ---------------
+ * Son aktiviteden bu yana gecerliUykuSuresi ms geçmişse LED'leri söndürür.
+ */
+void handleSleepMode(unsigned long currentMillis) {
     if (ledsActive && (currentMillis - lastActivityTime > gecerliUykuSuresi)) {
         strip.clear();
         strip.show();
         ledsActive = false;
     }
+}
 
-    // 4. VERİ HAVUZUNU DOLDURMA (Her 1 Saniyede Bir)
-    if (currentMillis - lastSampleTime >= 1000) {
-        lastSampleTime = currentMillis;
-        
-        float cR, cG, cB;
-        getCalibratedColor(cR, cG, cB);
-        
-        // Veriyi tampona yaz ve indexi ilerlet
-        histR[histIndex] = cR;
-        histG[histIndex] = cG;
-        histB[histIndex] = cB;
-        
-        histIndex = (histIndex + 1) % MAX_HISTORY_SECONDS;
-        if (histCount < MAX_HISTORY_SECONDS) {
-            histCount++; // 900 saniye dolana kadar sayacı artır
-        }
-    }
+/*
+ * handleDataSampling
+ * ------------------
+ * Her 1000 ms'de bir sensörden ham veri alır, kalibrasyon uygular
+ * ve dairesel tampona yazar.
+ *
+ * sdAutoLog true ve SD kart mevcutsa appendToCSV çağrılır.
+ * appendToCSV içinde sdAutoLog kontrolü de yapılır (çift güvence).
+ */
+void handleDataSampling(unsigned long currentMillis) {
+    if (currentMillis - lastSampleTime < 1000) return;
+    lastSampleTime = currentMillis;
 
-    // 5. TEST MODU (OKU ile tetiklenir, her 300ms'de veri basar)
-    static unsigned long lastTestPrint = 0;
-    if (testModeActive && (currentMillis - lastTestPrint > 300)) {
-        lastTestPrint = currentMillis;
-        float cR, cG, cB;
-        getCalibratedColor(cR, cG, cB);
-        
-        
-        // Debug için ; 
-        // Serial.print("TEST AKISI => ");
-        Serial.print("R:"); Serial.print(cR, 0);
-        Serial.print(" G:"); Serial.print(cG, 0);
-        Serial.print(" B:"); Serial.println(cB, 0);
-    }
+    uint16_t r, g, b, c;
+    tcs.getRawData(&r, &g, &b, &c);
 
-    // 6. SERİ HABERLEŞME (BİLGİSAYARDAN GELEN KOMUTLAR)
-    if (Serial.available() > 0) {
-        String cmd = Serial.readStringUntil('\n');
-        cmd.trim();
-        cmd.toUpperCase(); 
+    float cR, cG, cB;
+    getCalibratedColor(cR, cG, cB, calibMode);
 
-        // YENİ EKLENEN KİMLİK DOĞRULAMA (HANDSHAKE) KOMUTU
-        if (cmd == "KIMSIN") {
-            Serial.println("BENIM_OZEL_PICOM_V1");
-        }
-        else if (cmd == "OKU") {
-            // Sadece OKU gelirse canlı veri akışını başlat
-            testModeActive = true;
-            Serial.println(">> CANLI AKIS BASLADI (Durdurmak icin OKU_X veya OKU_0 gonderin)");
-        } 
-        else if (cmd.startsWith("OKU_")) {
-            // Parametreli bir komut gelirse canlı akışı (stream) hemen durdur
-            testModeActive = false; 
-            
-            int reqSeconds = 0;
+    histR[histIndex] = cR;
+    histG[histIndex] = cG;
+    histB[histIndex] = cB;
 
-            // 1. Durum: Saniye bazlı okuma isteniyorsa (Örn: OKU_S30)
-            if (cmd.startsWith("OKU_S")) {
-                String param = cmd.substring(5); // "OKU_S" kısmı 5 karakter olduğu için 5'ten sonrasını al
-                reqSeconds = param.toInt();
-                
-                // Güvenlik sınırı: Havuzumuz maksimum 900 saniye (15 dk) alabiliyor
-                if (reqSeconds > MAX_HISTORY_SECONDS) reqSeconds = MAX_HISTORY_SECONDS; 
-            } 
-            // 2. Durum: Dakika bazlı okuma isteniyorsa (Örn: OKU_10)
-            else {
-                String param = cmd.substring(4); // "OKU_" kısmı 4 karakter olduğu için 4'ten sonrasını al
-                int minutes = param.toInt();
-                
-                if (minutes > 15) minutes = 15; // 15 dakika güvenlik sınırı
-                reqSeconds = minutes * 60;      // Dakikayı saniyeye çevir
-            }
+    histRawR[histIndex] = r;
+    histRawG[histIndex] = g;
+    histRawB[histIndex] = b;
+    histRawC[histIndex] = c;
 
-            // --- Bundan sonrası eski kodunla birebir aynı ---
+    histIndex = (histIndex + 1) % MAX_HISTORY_SECONDS;
+    if (histCount < MAX_HISTORY_SECONDS) histCount++;
 
-            if (reqSeconds == 0) {
-                // OKU_0 veya OKU_S0: Sadece o anki değeri TEK SEFERLİK gönder
-                float cR, cG, cB;
-                getCalibratedColor(cR, cG, cB);
-                Serial.print("ANLIK TEK OKUMA => R:"); Serial.print(cR, 0);
-                Serial.print(" G:"); Serial.print(cG, 0);
-                Serial.print(" B:"); Serial.println(cB, 0);
-            } 
-            else {
-                // İstenen saniye kadar ortalamayı TEK SEFERLİK gönder
-                int calcSeconds = (reqSeconds > histCount) ? histCount : reqSeconds; 
-                
-                if (calcSeconds == 0) {
-                    Serial.println("HATA: Henuz ortalama alinacak kadar veri birikmedi.");
-                } else {
-                    float sumR = 0, sumG = 0, sumB = 0;
-                    
-                    for (int i = 0; i < calcSeconds; i++) {
-                        int idx = histIndex - 1 - i;
-                        if (idx < 0) idx += MAX_HISTORY_SECONDS;
-                        
-                        sumR += histR[idx];
-                        sumG += histG[idx];
-                        sumB += histB[idx];
-                    }
-
-                    // Debug için;
-                    // Serial.print("ORTALAMA (Son "); Serial.print(calcSeconds); Serial.print(" Sn) => ");
-                    Serial.print("R:"); Serial.print(sumR / calcSeconds, 0);
-                    Serial.print(" G:"); Serial.print(sumG / calcSeconds, 0);
-                    Serial.print(" B:"); Serial.println(sumB / calcSeconds, 0);
-                }
-            }
-        }
-        else if (cmd == "RAW") {
-            testModeActive = true; // Sürekli akış varsa durdur
-            uint16_t r, g, b, c;
-            tcs.getRawData(&r, &g, &b, &c);
-            
-            Serial.print("HAM VERI (RAW) => "); // niye bilmiyorum ama ham veri vermiyor. katsayılı veriyor.
-            Serial.print("R:"); Serial.print(r);
-            Serial.print(" G:"); Serial.print(g);
-            Serial.print(" B:"); Serial.print(b);
-            Serial.print(" C:"); Serial.println(c);
-        }
-        else {
-            Serial.print("Girebileceğin emirler şunlar: KIMSIN, OKU, OKU_X, RAW");
-        }
+    // Otomatik SD kayıt — sadece sdAutoLog aktifse çalışır
+    if (sdAutoLog && sdCardAvailable) {
+        float lux;
+        int   colorTemp;
+        calculateLuxAndTemp(r, g, b, c, lux, colorTemp);
+        appendToCSV(r, g, b, c, cR, cG, cB, lux, colorTemp);
     }
 }
 
-// --- LED GÖRSELLEŞTİRME ---
-void updateLEDs() {
-    float val = 0.0;
-    if (currentState == STATE_R) val = wR;
-    else if (currentState == STATE_G) val = wG;
-    else if (currentState == STATE_B) val = wB;
-    else val = wL;
+/*
+ * handleTestMode
+ * --------------
+ * Canlı akış aktifse (testModeActive == true) her 300 ms'de bir
+ * veri satırı gönderir.
+ *
+ * dualOutputActive true ise printDualOutput, false ise
+ * printStandardOutput (OUT_LIVE) kullanılır.
+ * Her iki durumda da useMode olarak global calibMode kullanılır.
+ */
+void handleTestMode(unsigned long currentMillis) {
+    static unsigned long lastTestPrint = 0;
+    if (!testModeActive) return;
+    if (currentMillis - lastTestPrint < 300) return;
 
-    float norm = (val + 1.0) / 2.0; 
-    int numLeds = (norm * (NEO_COUNT - 1)) + 1;
-    
-    int br = 30 + (norm * 225);
-    int w = norm * 150;
+    lastTestPrint = currentMillis;
 
-    strip.clear();
-    for(int i = 0; i < numLeds; i++) {
-        if (currentState == STATE_R)      strip.setPixelColor(i, strip.Color(br, w, w));
-        else if (currentState == STATE_G) strip.setPixelColor(i, strip.Color(w, br, w));
-        else if (currentState == STATE_B) strip.setPixelColor(i, strip.Color(w, w, br));
-        else                              strip.setPixelColor(i, strip.Color(br, br, br));
+    if (dualOutputActive) {
+        uint16_t r, g, b, c;
+        tcs.getRawData(&r, &g, &b, &c);
+        float cR, cG, cB;
+        getCalibratedColor(cR, cG, cB, calibMode);
+        printDualOutput(OUT_LIVE, calibMode, r, g, b, c, cR, cG, cB, "live_dual");
+    } else {
+        float cR, cG, cB;
+        getCalibratedColor(cR, cG, cB, calibMode);
+        printStandardOutput(OUT_LIVE, calibMode, cR, cG, cB);
     }
+}
+
+// ============================================================
+// ========== SETUP ==========================================
+// ============================================================
+
+void setup() {
+    Serial.begin(115200);
+
+    // TCS LED (aktif-LOW) başlangıçta kapalı
+    pinMode(TCS_LED_PIN, OUTPUT);
+    digitalWrite(TCS_LED_PIN, LOW);
+
+    // I2C — RP2040 üzerinde SDA=4, SCL=5
+    Wire.setSDA(4);
+    Wire.setSCL(5);
+    Wire.begin();
+
+    if (!tcs.begin()) {
+        printErrorMessage(calibMode, "SENSOR_NOT_FOUND");
+    } else {
+        printStatusMessage(calibMode, "SENSOR_TCS34725_OK");
+    }
+
+    // NeoPixel
+    strip.begin();
     strip.show();
-    ledsActive = true;
+    printStatusMessage(calibMode, "NEOPIXEL_OK");
+
+    // Encoder pinleri
+    pinMode(ENC_CLK_PIN, INPUT_PULLUP);
+    pinMode(ENC_DT_PIN,  INPUT_PULLUP);
+    pinMode(ENC_SW_PIN,  INPUT_PULLUP);
+
+    // CLK düşen kenarda kesme — bu satır kesinlikle kaldırılmamalı
+    attachInterrupt(digitalPinToInterrupt(ENC_CLK_PIN), encoderISR, FALLING);
+    printStatusMessage(calibMode, "ENCODER_IRQ_OK");
+
+    // SD kart
+    initSDCard();
+
+    // İlk örnekleme ve LED güncelleme
+    lastSampleTime  = millis();
+    lastActivityTime = millis();
+    handleDataSampling(millis());
+    updateLEDs();
+
+    printStatusMessage(calibMode, "SYSTEM_STARTED");
+}
+
+// ============================================================
+// ========== LOOP ===========================================
+// ============================================================
+
+void loop() {
+    unsigned long currentMillis = millis();
+    static bool   buttonDown    = false;
+
+    handleButtonPress(currentMillis, buttonDown, lastButtonPress); // 1. Buton
+    handleEncoder();                                                // 2. Encoder
+    handleSleepMode(currentMillis);                                 // 3. LED uyku
+    handleDataSampling(currentMillis);                              // 4. Örnekleme
+    handleTestMode(currentMillis);                                  // 5. Canlı akış
+    handleSerialCommands();                                         // 6. Seri komutlar
 }
