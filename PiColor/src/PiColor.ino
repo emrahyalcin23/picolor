@@ -1214,34 +1214,12 @@ void showHelp() {
 // ============================================================
 
 /*
- * handleSerialCommands
- * --------------------
- * Seri porttan gelen bir satırı okur, büyük harfe çevirir ve
- * ilgili fonksiyona yönlendirir.
- *
- * Önce extractModeFromCommand ile STABIL_/DINAMIK_ öneki ayrıştırılır.
- * Kalan komut if-else zincirine girer.
- *
- * OKU / OKU_0 / OKU_S<n> / OKU_<m> zinciri:
- *   - OKU_0    → tek okuma
- *   - OKU_S<n> → n saniyelik ortalama
- *   - OKU_<m>  → m dakikalık ortalama (parseTimeParameter halleder)
- *   Bu üç durum parseTimeParameter tarafından saniyeye dönüştürülür;
- *   seconds==0 ise tek okuma, >0 ise ortalama tetiklenir.
- *
- * DUAL_OKU_S<n> için substring(10) kullanılır:
- *   "DUAL_OKU_S" = 10 karakter, toInt() doğru çalışır.
- *
- * Hiçbir dalda eşleşme olmazsa UNKNOWN_COMMAND hatası gönderilir.
+ * processCommand
+ * --------------
+ * Tek bir komutu (zaten büyük harfe çevrilmiş, trim edilmiş) işler.
+ * handleSerialCommands tarafından her token için ayrı ayrı çağrılır.
  */
-void handleSerialCommands() {
-    if (Serial.available() == 0) return;
-
-    String cmd = Serial.readStringUntil('\n');
-    cmd.trim();
-    cmd.toUpperCase();
-    if (cmd.length() == 0) return;
-
+void processCommand(String cmd) {
     // --- Mod önekini ayıkla (STABIL_ / DINAMIK_) ---
     int useMode;
     extractModeFromCommand(cmd, useMode);
@@ -1451,6 +1429,41 @@ void handleSerialCommands() {
     // ====================================================
     else {
         printErrorMessage(calibMode, "UNKNOWN_COMMAND");
+    }
+}
+
+/*
+ * handleSerialCommands
+ * --------------------
+ * Seri porttan bir satır okur, büyük harfe çevirir ve boşluk/virgülle
+ * tokenlara böler. Her token processCommand() ile ayrı ayrı işlenir.
+ *
+ * Ayırıcılar: boşluk ( ) ve virgül (,) — birden fazla art arda ayırıcı
+ * boş token üretmez.
+ *
+ * Örnekler (tek satır, sıralı işlenir):
+ *   BASAMAK_2 LOGARITMIK_3 OKU_S1
+ *   VARSAYILAN,OKU_0
+ *   STABIL_OKU_S30 OLCEK
+ */
+void handleSerialCommands() {
+    if (Serial.available() == 0) return;
+
+    String line = Serial.readStringUntil('\n');
+    line.trim();
+    line.toUpperCase();
+    if (line.length() == 0) return;
+
+    int start = 0;
+    int len   = line.length();
+    for (int i = 0; i <= len; i++) {
+        char c = (i < len) ? line.charAt(i) : ' '; // sentinel
+        if (c == ' ' || c == ',') {
+            if (i > start) {
+                processCommand(line.substring(start, i));
+            }
+            start = i + 1;
+        }
     }
 }
 
