@@ -199,6 +199,14 @@ int   calibMode       = 0;    // 0=STABIL  1=DINAMIK
 float maxObserved     = 1000.0f; // Dinamik mod için gözlemlenen maksimum
 
 // ============================================================
+// ÇIKTI FORMAT DEĞİŞKENLERİ
+// ============================================================
+
+int   outputDecimals    = 1;     // Ondalık basamak sayısı (varsayılan: 1 — mevcut davranış)
+bool  logarithmicOutput = false; // Weber-Fechner log dönüşümü (varsayılan: kapalı)
+float logDecades        = 3.0f;  // Log dinamik aralık — dekad cinsinden (TCS34725 tipik: 2–4)
+
+// ============================================================
 // SD KART DEĞİŞKENLERİ
 // ============================================================
 
@@ -227,6 +235,20 @@ enum OutputType {
 // ============================================================
 
 /*
+ * applyOutputScale
+ * ----------------
+ * Weber-Fechner logaritmik dönüşümü (fotometrik standart).
+ * Formül: y = log10(1 + x*(10^D-1)/100) / D * 100
+ * Özellikler: f(0)=0, f(100)=100; 0–100 aralığı korunur.
+ * logarithmicOutput=false veya value<=0 ise değiştirilmeden döner.
+ */
+float applyOutputScale(float value) {
+    if (!logarithmicOutput || value <= 0.0f) return value;
+    float k = powf(10.0f, logDecades) - 1.0f;
+    return log10f(1.0f + value * k / 100.0f) / logDecades * 100.0f;
+}
+
+/*
  * printStandardOutput
  * -------------------
  * Tüm tek-değer (işlenmiş veya ham) çıktılar bu fonksiyondan geçer.
@@ -252,9 +274,9 @@ void printStandardOutput(OutputType type, int mode,
     } else if (type == OUT_STATUS || type == OUT_ERROR) {
         Serial.print("0;0;0");
     } else {
-        Serial.print(v1, 1); Serial.print(';');
-        Serial.print(v2, 1); Serial.print(';');
-        Serial.print(v3, 1);
+        Serial.print(applyOutputScale(v1), outputDecimals); Serial.print(';');
+        Serial.print(applyOutputScale(v2), outputDecimals); Serial.print(';');
+        Serial.print(applyOutputScale(v3), outputDecimals);
     }
 
     if (meta != nullptr && strlen(meta) > 0) {
@@ -312,9 +334,9 @@ void printDualOutput(OutputType type, int mode,
     Serial.print(raw_b);  Serial.print(';');
     Serial.print(raw_c);  Serial.print(';');
 
-    Serial.print(proc_r, 1); Serial.print(';');
-    Serial.print(proc_g, 1); Serial.print(';');
-    Serial.print(proc_b, 1);
+    Serial.print(applyOutputScale(proc_r), outputDecimals); Serial.print(';');
+    Serial.print(applyOutputScale(proc_g), outputDecimals); Serial.print(';');
+    Serial.print(applyOutputScale(proc_b), outputDecimals);
 
     if (strlen(meta) > 0) {
         Serial.print(';');
@@ -517,10 +539,18 @@ void appendToCSV(uint16_t r, uint16_t g, uint16_t b, uint16_t c,
     const char* stateNames[] = {"R", "G", "B", "L"};
     const char* modeStr = (calibMode == 0) ? "STABIL" : "DINAMIK";
 
-    f.printf("%lu,%d,%d,%d,%d,%.1f,%.1f,%.1f,%.2f,%d,"
-             "%.2f,%.2f,%.2f,%.2f,%s,%s\n",
-             millis(), r, g, b, c, pr, pg, pb, lux, colorTemp,
-             wR, wG, wB, wL, stateNames[currentState], modeStr);
+    f.printf("%lu,%d,%d,%d,%d,%.*f,%.*f,%.*f,%.*f,%d,"
+             "%.*f,%.*f,%.*f,%.*f,%s,%s\n",
+             millis(), r, g, b, c,
+             outputDecimals, applyOutputScale(pr),
+             outputDecimals, applyOutputScale(pg),
+             outputDecimals, applyOutputScale(pb),
+             outputDecimals, lux, colorTemp,
+             outputDecimals, wR,
+             outputDecimals, wG,
+             outputDecimals, wB,
+             outputDecimals, wL,
+             stateNames[currentState], modeStr);
     f.close();
 }
 
@@ -568,12 +598,19 @@ void exportBufferToSD() {
                             histRawB[idx], histRawC[idx], lux, colorTemp);
 
         // Gerçek zaman damgası bilinmediğinden örnekleme indeksi * 1000 ms kullanılır
-        f.printf("%lu,%d,%d,%d,%d,%.1f,%.1f,%.1f,%.2f,%d,"
-                 "%.2f,%.2f,%.2f,%.2f,%s,%s\n",
+        f.printf("%lu,%d,%d,%d,%d,%.*f,%.*f,%.*f,%.*f,%d,"
+                 "%.*f,%.*f,%.*f,%.*f,%s,%s\n",
                  (unsigned long)(i * 1000),
                  histRawR[idx], histRawG[idx], histRawB[idx], histRawC[idx],
-                 histR[idx], histG[idx], histB[idx], lux, colorTemp,
-                 wR, wG, wB, wL, stateNames[currentState], modeStr);
+                 outputDecimals, applyOutputScale(histR[idx]),
+                 outputDecimals, applyOutputScale(histG[idx]),
+                 outputDecimals, applyOutputScale(histB[idx]),
+                 outputDecimals, lux, colorTemp,
+                 outputDecimals, wR,
+                 outputDecimals, wG,
+                 outputDecimals, wB,
+                 outputDecimals, wL,
+                 stateNames[currentState], modeStr);
 
         if (i % 50 == 0) f.flush();
     }
@@ -798,38 +835,38 @@ void sendFullData() {
     Serial.print(b);   Serial.print(";");
     Serial.print(c);   Serial.print(";");
     // Anlık işlenmiş
-    Serial.print(proc_r, 1); Serial.print(";");
-    Serial.print(proc_g, 1); Serial.print(";");
-    Serial.print(proc_b, 1); Serial.print(";");
+    Serial.print(applyOutputScale(proc_r), outputDecimals); Serial.print(";");
+    Serial.print(applyOutputScale(proc_g), outputDecimals); Serial.print(";");
+    Serial.print(applyOutputScale(proc_b), outputDecimals); Serial.print(";");
     // Lüks ve renk sıcaklığı
-    Serial.print(lux, 2);    Serial.print(";");
+    Serial.print(lux, outputDecimals);    Serial.print(";");
     Serial.print(colorTemp); Serial.print(";");
     // Katsayılar
-    Serial.print(wR, 2); Serial.print(";");
-    Serial.print(wG, 2); Serial.print(";");
-    Serial.print(wB, 2); Serial.print(";");
-    Serial.print(wL, 2); Serial.print(";");
+    Serial.print(wR, outputDecimals); Serial.print(";");
+    Serial.print(wG, outputDecimals); Serial.print(";");
+    Serial.print(wB, outputDecimals); Serial.print(";");
+    Serial.print(wL, outputDecimals); Serial.print(";");
     // Durum
     Serial.print(stateNames[currentState]); Serial.print(";");
     Serial.print(modeStr);                  Serial.print(";");
     // 60s ortalama
-    Serial.print(avg60_r,  1); Serial.print(";");
-    Serial.print(avg60_g,  1); Serial.print(";");
-    Serial.print(avg60_b,  1); Serial.print(";");
+    Serial.print(applyOutputScale(avg60_r),  outputDecimals); Serial.print(";");
+    Serial.print(applyOutputScale(avg60_g),  outputDecimals); Serial.print(";");
+    Serial.print(applyOutputScale(avg60_b),  outputDecimals); Serial.print(";");
     // 300s ortalama
-    Serial.print(avg300_r, 1); Serial.print(";");
-    Serial.print(avg300_g, 1); Serial.print(";");
-    Serial.print(avg300_b, 1); Serial.print(";");
+    Serial.print(applyOutputScale(avg300_r), outputDecimals); Serial.print(";");
+    Serial.print(applyOutputScale(avg300_g), outputDecimals); Serial.print(";");
+    Serial.print(applyOutputScale(avg300_b), outputDecimals); Serial.print(";");
     // 900s ortalama
-    Serial.print(avg900_r, 1); Serial.print(";");
-    Serial.print(avg900_g, 1); Serial.print(";");
-    Serial.print(avg900_b, 1); Serial.print(";");
+    Serial.print(applyOutputScale(avg900_r), outputDecimals); Serial.print(";");
+    Serial.print(applyOutputScale(avg900_g), outputDecimals); Serial.print(";");
+    Serial.print(applyOutputScale(avg900_b), outputDecimals); Serial.print(";");
     // Tampon istatistikleri
     Serial.print(histCount);                              Serial.print(";");
     Serial.print(MAX_HISTORY_SECONDS);                    Serial.print(";");
     Serial.print((histCount * 100) / MAX_HISTORY_SECONDS); Serial.print(";");
     // Sistem bayrakları
-    Serial.print(maxObserved, 1);         Serial.print(";");
+    Serial.print(maxObserved, outputDecimals); Serial.print(";");
     Serial.print(sdCardAvailable ? "1" : "0"); Serial.print(";");
     Serial.print(sdAutoLog       ? "1" : "0"); Serial.print(";");
     Serial.print(testModeActive  ? "1" : "0"); Serial.print(";");
@@ -1045,7 +1082,9 @@ void showCurrentMode() {
  */
 void showCoefficients() {
     char meta[64];
-    snprintf(meta, sizeof(meta), "wR=%.2f,wG=%.2f,wB=%.2f,wL=%.2f", wR, wG, wB, wL);
+    snprintf(meta, sizeof(meta), "wR=%.*f,wG=%.*f,wB=%.*f,wL=%.*f",
+             outputDecimals, wR, outputDecimals, wG,
+             outputDecimals, wB, outputDecimals, wL);
     printStatusMessage(calibMode, meta);
 }
 
@@ -1141,6 +1180,14 @@ void showHelp() {
     Serial.println("DINAMIK_DUAL_OKU[_S<n>]  dinamik dual override");
     Serial.println("DUAL_AKIS                canli dual akis");
     Serial.println("STABIL_DUAL_AKIS / DINAMIK_DUAL_AKIS");
+    Serial.println("");
+    Serial.println("--- CIKTI FORMAT ---");
+    Serial.println("BASAMAK_<n>              ondalik basamak say. (0-6)");
+    Serial.println("LOGARITMIK               Weber-Fechner log olcek ac");
+    Serial.println("LOGARITMIK_<n>           log olcek + dekad ayarla (1.0-5.0)");
+    Serial.println("LINEER                   lineer olcege don");
+    Serial.println("VARSAYILAN / DEFAULT     fabrika ayarlarina don (1 basamak, lineer)");
+    Serial.println("OLCEK / SCALE            mevcut format ayarlarini goster");
     Serial.println("");
     Serial.println("YARDIM / HELP            bu ekran");
     Serial.println("========================\n");
@@ -1323,6 +1370,57 @@ void handleSerialCommands() {
         } else {
             sendSingleDualReading(useMode);
         }
+    }
+
+    // ====================================================
+    // ÇIKTI FORMAT KONTROLÜ
+    // ====================================================
+    else if (cmd.startsWith("BASAMAK_")) {
+        int n = cmd.substring(8).toInt();
+        if (n >= 0 && n <= 6) {
+            outputDecimals = n;
+            char meta[32];
+            snprintf(meta, sizeof(meta), "DECIMALS=%d", outputDecimals);
+            printStatusMessage(calibMode, meta);
+        } else {
+            printErrorMessage(calibMode, "INVALID_DECIMAL_VALUE");
+        }
+    }
+    else if (cmd.startsWith("LOGARITMIK_")) {
+        float d = cmd.substring(11).toFloat();
+        if (d >= 1.0f && d <= 5.0f) {
+            logarithmicOutput = true;
+            logDecades = d;
+            char meta[48];
+            snprintf(meta, sizeof(meta), "SCALE=LOGARITMIK,decades=%.1f", logDecades);
+            printStatusMessage(calibMode, meta);
+        } else {
+            printErrorMessage(calibMode, "INVALID_DECADES_VALUE");
+        }
+    }
+    else if (cmd == "LOGARITMIK") {
+        logarithmicOutput = true;
+        char meta[48];
+        snprintf(meta, sizeof(meta), "SCALE=LOGARITMIK,decades=%.1f", logDecades);
+        printStatusMessage(calibMode, meta);
+    }
+    else if (cmd == "LINEER") {
+        logarithmicOutput = false;
+        printStatusMessage(calibMode, "SCALE=LINEER");
+    }
+    else if (cmd == "VARSAYILAN" || cmd == "DEFAULT") {
+        outputDecimals    = 1;
+        logarithmicOutput = false;
+        logDecades        = 3.0f;
+        printStatusMessage(calibMode, "OUTPUT=DEFAULT,decimals=1,scale=LINEER");
+    }
+    else if (cmd == "OLCEK" || cmd == "SCALE") {
+        char meta[64];
+        snprintf(meta, sizeof(meta), "decimals=%d,scale=%s,decades=%.1f",
+                 outputDecimals,
+                 logarithmicOutput ? "LOGARITMIK" : "LINEER",
+                 logDecades);
+        printStatusMessage(calibMode, meta);
     }
 
     // ====================================================
