@@ -4,10 +4,10 @@
  * Copyright (c) 2026 Emrah YALÇIN
  * MIT License — https://opensource.org/licenses/MIT
  * ------------------------------------------------------------
- * VERSİYON : d5
- * TANIM    : D2 (kararlı temel) + D4 (SD kart, lüks, TUM)
- *            birleşimi. Tüm hatalar giderilmiş, d2 davranışı
- *            korunmuş, eksik özellikler tamamlanmıştır.
+ * VERSİYON : d6
+ * TANIM    : D5 üzerine kablosuz iletişim katmanı (WiFi AP+STA,
+ *            TCP port 8266, BLE NUS). Mevcut Serial protokolü
+ *            birebir korunur; WIRELESS_ENABLED=false → d5 davranışı.
  * ============================================================
  *
  * DONANIM
@@ -85,11 +85,46 @@
  * ============================================================
  */
 
+// ============================================================
+// ÖZELLIK ANAHTARLARI
+// ============================================================
+
+#define WIRELESS_ENABLED  true   // WiFi+BLE aktif/pasif — default: aktif
+#define LOGGING_ENABLED   false  // Kullanıcı logu aktif/pasif — default: pasif
+                                 // UYARI: SD kart olmadan LOGGING_ENABLED=true
+                                 // Pico flash yazma limitini hızla tüketir!
+
+// === WIRELESS CONFIG (WIRELESS_ENABLED=true ise geçerli) ===
+#if WIRELESS_ENABLED
+#define WIFI_STA_SSID   "router_ssid"
+#define WIFI_STA_PASS   "router_pass"
+#define WIFI_AP_SSID    "PiColor"
+#define WIFI_AP_PASS    "picolor123"
+#define TCP_PORT        8266
+#define MAX_TCP_CLIENTS 4
+#endif
+
+// === LOG CONFIG (LOGGING_ENABLED=true ise geçerli) ===
+#if LOGGING_ENABLED
+#define LOG_FILE        "/user_log.csv"
+#endif
+
+// ============================================================
+// KÜTÜPHANELER
+// ============================================================
+
 #include <Wire.h>
 #include <Adafruit_TCS34725.h>
 #include <Adafruit_NeoPixel.h>
 #include <SD.h>
 #include <SPI.h>
+
+#if WIRELESS_ENABLED
+#include <WiFi.h>
+#include <WiFiServer.h>
+#include <LEAmDNS.h>
+#include <ArduinoBLE.h>  // Arduino Library Manager: "ArduinoBLE"
+#endif
 
 // ============================================================
 // PIN TANIMLAMALARI
@@ -228,6 +263,30 @@ bool        sdAutoLog        = false; // Her örnekte otomatik CSV yazma aktif m
 const char* CSV_FILENAME     = "/picolor_data.csv"; // Ana kayıt dosyası
 
 // ============================================================
+// KABLOSUZ İLETİŞİM DEĞİŞKENLERİ
+// ============================================================
+
+// Mevcut komutu gönderen kullanıcı (Serial/TCP/BLE handler tarafından set edilir)
+static String currentUsername = "serial";
+
+#if WIRELESS_ENABLED
+static WiFiServer  tcpServer(TCP_PORT);
+static WiFiClient  tcpClients[MAX_TCP_CLIENTS];
+static char        tcpRxBuf[MAX_TCP_CLIENTS][256];
+static int         tcpRxLen[MAX_TCP_CLIENTS];
+
+// BLE NUS (Nordic UART Service)
+static BLEService        nusService("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
+static BLECharacteristic nusTxChar("6E400003-B5A3-F393-E0A9-E50E24DCCA9E",
+                                    BLERead | BLENotify, 256);
+static BLECharacteristic nusRxChar("6E400002-B5A3-F393-E0A9-E50E24DCCA9E",
+                                    BLEWriteWithoutResponse | BLEWrite, 256);
+static bool bleConnected = false;
+static char bleRxBuf[256];
+static int  bleRxLen = 0;
+#endif
+
+// ============================================================
 // ÇIKTI TİPİ ENUM
 // ============================================================
 
@@ -241,6 +300,35 @@ enum OutputType {
     OUT_DUAL    = 6, // Hem ham hem işlenmiş
     OUT_FULL    = 7  // TUM komutu için tam veri paketi
 };
+
+// ============================================================
+// ========== ÇIKTI MULTİPLEKSERİ ============================
+// ============================================================
+
+// Forward declaration — tanımı wireless fonksiyonlar bölümündedir
+#if WIRELESS_ENABLED
+void bleSendLine(const String& line);
+#endif
+
+/*
+ * broadcastLine
+ * -------------
+ * Bir çıktı satırını tüm aktif kanallara gönderir.
+ * Serial: satır birebir (değişmez).
+ * TCP/BLE: satıra ";user=<currentUsername>" eklenir — geriye uyumlu.
+ * WIRELESS_ENABLED=false ise yalnızca Serial.println çalışır.
+ */
+void broadcastLine(const String& line) {
+    Serial.println(line);
+#if WIRELESS_ENABLED
+    String wirelessLine = line + ";user=" + currentUsername;
+    for (int i = 0; i < MAX_TCP_CLIENTS; i++) {
+        if (tcpClients[i] && tcpClients[i].connected())
+            tcpClients[i].println(wirelessLine);
+    }
+    if (bleConnected) bleSendLine(wirelessLine);
+#endif
+}
 
 // ============================================================
 // ========== STANDART ÇIKTI FONKSİYONLARI ===================
@@ -274,28 +362,23 @@ void printStandardOutput(OutputType type, int mode,
                          float v1, float v2, float v3,
                          const char* meta = "") {
     unsigned long ts = millis();
-
-    Serial.print(ts);         Serial.print(';');
-    Serial.print((int)type);  Serial.print(';');
-    Serial.print(mode);       Serial.print(';');
+    String line = String(ts) + ";" + String((int)type) + ";" + String(mode) + ";";
 
     if (type == OUT_RAW) {
-        Serial.print((int)v1); Serial.print(';');
-        Serial.print((int)v2); Serial.print(';');
-        Serial.print((int)v3);
+        line += String((int)v1) + ";" + String((int)v2) + ";" + String((int)v3);
     } else if (type == OUT_STATUS || type == OUT_ERROR) {
-        Serial.print("0;0;0");
+        line += "0;0;0";
     } else {
-        Serial.print(applyOutputScale(v1), outputDecimals); Serial.print(';');
-        Serial.print(applyOutputScale(v2), outputDecimals); Serial.print(';');
-        Serial.print(applyOutputScale(v3), outputDecimals);
+        line += String(applyOutputScale(v1), outputDecimals) + ";"
+              + String(applyOutputScale(v2), outputDecimals) + ";"
+              + String(applyOutputScale(v3), outputDecimals);
     }
 
     if (meta != nullptr && strlen(meta) > 0) {
-        Serial.print(';');
-        Serial.print(meta);
+        line += ";";
+        line += meta;
     }
-    Serial.println();
+    broadcastLine(line);
 }
 
 // String overload — meta için String kabul eder
@@ -336,25 +419,18 @@ void printDualOutput(OutputType type, int mode,
                      float proc_r, float proc_g, float proc_b,
                      const char* meta = "") {
     unsigned long ts = millis();
-
-    Serial.print(ts);         Serial.print(';');
-    Serial.print((int)type);  Serial.print(';');
-    Serial.print(mode);       Serial.print(';');
-
-    Serial.print(raw_r);  Serial.print(';');
-    Serial.print(raw_g);  Serial.print(';');
-    Serial.print(raw_b);  Serial.print(';');
-    Serial.print(raw_c);  Serial.print(';');
-
-    Serial.print(applyOutputScale(proc_r), outputDecimals); Serial.print(';');
-    Serial.print(applyOutputScale(proc_g), outputDecimals); Serial.print(';');
-    Serial.print(applyOutputScale(proc_b), outputDecimals);
+    String line = String(ts) + ";" + String((int)type) + ";" + String(mode) + ";"
+                + String(raw_r) + ";" + String(raw_g) + ";"
+                + String(raw_b) + ";" + String(raw_c) + ";"
+                + String(applyOutputScale(proc_r), outputDecimals) + ";"
+                + String(applyOutputScale(proc_g), outputDecimals) + ";"
+                + String(applyOutputScale(proc_b), outputDecimals);
 
     if (strlen(meta) > 0) {
-        Serial.print(';');
-        Serial.print(meta);
+        line += ";";
+        line += meta;
     }
-    Serial.println();
+    broadcastLine(line);
 }
 
 // String overload
@@ -841,53 +917,48 @@ void sendFullData() {
     if (cnt300 > 0) { avg300_r /= cnt300; avg300_g /= cnt300; avg300_b /= cnt300; }
     if (cnt900 > 0) { avg900_r /= cnt900; avg900_g /= cnt900; avg900_b /= cnt900; }
 
-    // --- Çıktı ---
+    // --- Çıktı (broadcastLine ile Serial+TCP+BLE'ye) ---
     unsigned long ts = millis();
-    Serial.print(ts); Serial.print(";FULL;"); Serial.print(calibMode); Serial.print(";");
-
-    // Anlık ham
-    Serial.print(r);   Serial.print(";");
-    Serial.print(g);   Serial.print(";");
-    Serial.print(b);   Serial.print(";");
-    Serial.print(c);   Serial.print(";");
-    // Anlık işlenmiş
-    Serial.print(applyOutputScale(proc_r), outputDecimals); Serial.print(";");
-    Serial.print(applyOutputScale(proc_g), outputDecimals); Serial.print(";");
-    Serial.print(applyOutputScale(proc_b), outputDecimals); Serial.print(";");
-    // Lüks ve renk sıcaklığı
-    Serial.print(lux, outputDecimals);    Serial.print(";");
-    Serial.print(colorTemp); Serial.print(";");
-    // Katsayılar
-    Serial.print(wR, outputDecimals); Serial.print(";");
-    Serial.print(wG, outputDecimals); Serial.print(";");
-    Serial.print(wB, outputDecimals); Serial.print(";");
-    Serial.print(wL, outputDecimals); Serial.print(";");
-    // Durum
-    Serial.print(stateNames[currentState]); Serial.print(";");
-    Serial.print(modeStr);                  Serial.print(";");
-    // 60s ortalama
-    Serial.print(applyOutputScale(avg60_r),  outputDecimals); Serial.print(";");
-    Serial.print(applyOutputScale(avg60_g),  outputDecimals); Serial.print(";");
-    Serial.print(applyOutputScale(avg60_b),  outputDecimals); Serial.print(";");
-    // 300s ortalama
-    Serial.print(applyOutputScale(avg300_r), outputDecimals); Serial.print(";");
-    Serial.print(applyOutputScale(avg300_g), outputDecimals); Serial.print(";");
-    Serial.print(applyOutputScale(avg300_b), outputDecimals); Serial.print(";");
-    // 900s ortalama
-    Serial.print(applyOutputScale(avg900_r), outputDecimals); Serial.print(";");
-    Serial.print(applyOutputScale(avg900_g), outputDecimals); Serial.print(";");
-    Serial.print(applyOutputScale(avg900_b), outputDecimals); Serial.print(";");
-    // Tampon istatistikleri
-    Serial.print(histCount);                              Serial.print(";");
-    Serial.print(MAX_HISTORY_SECONDS);                    Serial.print(";");
-    Serial.print((histCount * 100) / MAX_HISTORY_SECONDS); Serial.print(";");
-    // Sistem bayrakları
-    Serial.print(maxObserved, outputDecimals); Serial.print(";");
-    Serial.print(sdCardAvailable ? "1" : "0"); Serial.print(";");
-    Serial.print(sdAutoLog       ? "1" : "0"); Serial.print(";");
-    Serial.print(testModeActive  ? "1" : "0"); Serial.print(";");
-    Serial.print(dualOutputActive? "1" : "0");
-    Serial.println();
+    char buf[640];
+    snprintf(buf, sizeof(buf),
+        "%lu;FULL;%d;"
+        "%d;%d;%d;%d;"
+        "%.*f;%.*f;%.*f;"
+        "%.*f;%d;"
+        "%.*f;%.*f;%.*f;%.*f;"
+        "%s;%s;"
+        "%.*f;%.*f;%.*f;"
+        "%.*f;%.*f;%.*f;"
+        "%.*f;%.*f;%.*f;"
+        "%d;%d;%d;"
+        "%.*f;%d;%d;%d;%d",
+        ts, calibMode,
+        r, g, b, c,
+        outputDecimals, applyOutputScale(proc_r),
+        outputDecimals, applyOutputScale(proc_g),
+        outputDecimals, applyOutputScale(proc_b),
+        outputDecimals, lux, colorTemp,
+        outputDecimals, wR, outputDecimals, wG,
+        outputDecimals, wB, outputDecimals, wL,
+        stateNames[currentState], modeStr,
+        outputDecimals, applyOutputScale(avg60_r),
+        outputDecimals, applyOutputScale(avg60_g),
+        outputDecimals, applyOutputScale(avg60_b),
+        outputDecimals, applyOutputScale(avg300_r),
+        outputDecimals, applyOutputScale(avg300_g),
+        outputDecimals, applyOutputScale(avg300_b),
+        outputDecimals, applyOutputScale(avg900_r),
+        outputDecimals, applyOutputScale(avg900_g),
+        outputDecimals, applyOutputScale(avg900_b),
+        histCount, MAX_HISTORY_SECONDS,
+        (histCount * 100) / MAX_HISTORY_SECONDS,
+        outputDecimals, maxObserved,
+        sdCardAvailable ? 1 : 0,
+        sdAutoLog       ? 1 : 0,
+        testModeActive  ? 1 : 0,
+        dualOutputActive? 1 : 0
+    );
+    broadcastLine(String(buf));
 }
 
 // ============================================================
@@ -1210,6 +1281,49 @@ void showHelp() {
 }
 
 // ============================================================
+// ========== KOMUT SATIRINI İŞLE (tüm kanallar için) =========
+// ============================================================
+
+/*
+ * processCommandLine
+ * ------------------
+ * Ham bir satırı (büyük harf dönüşümü ve token bölme dahil) işler.
+ * Serial, TCP ve BLE kanallarından gelen satırlar bu fonksiyona gelir.
+ * username: "serial" | "anonymous" | kullanıcı adı
+ * currentUsername global'ı güncellenir — broadcastLine bunu kullanır.
+ */
+void processCommandLine(String line, const String& username) {
+    currentUsername = username;
+    line.trim();
+    line.toUpperCase();
+    if (line.length() == 0) { currentUsername = "serial"; return; }
+
+    String tokens[16];
+    int    tokenCount = 0;
+
+    int start = 0;
+    int len   = line.length();
+    for (int i = 0; i <= len && tokenCount < 16; i++) {
+        char c = (i < len) ? line.charAt(i) : ' ';
+        if (c == ' ' || c == ',') {
+            if (i > start) tokens[tokenCount++] = line.substring(start, i);
+            start = i + 1;
+        }
+    }
+
+    // 1. geçiş: ayar komutları
+    for (int i = 0; i < tokenCount; i++) {
+        if (!isReadCommand(tokens[i])) processCommand(tokens[i]);
+    }
+    // 2. geçiş: okuma komutları
+    for (int i = 0; i < tokenCount; i++) {
+        if (isReadCommand(tokens[i])) processCommand(tokens[i]);
+    }
+
+    currentUsername = "serial"; // bir sonraki serial çağrısı için varsayılanı sıfırla
+}
+
+// ============================================================
 // ========== ANA SERIAL KOMUT İŞLEYİCİ =====================
 // ============================================================
 
@@ -1454,43 +1568,13 @@ bool isReadCommand(const String &token) {
 /*
  * handleSerialCommands
  * --------------------
- * Seri porttan bir satır okur, büyük harfe çevirir ve boşluk/virgülle
- * tokenlara böler. İki geçişli sıralama uygulanır:
- *   1. geçiş: ayar komutları (soldan sağa)
- *   2. geçiş: okuma komutları (soldan sağa)
- *
- * Böylece "OKU_S1 BASAMAK_2 LOGARITMIK_3" gönderilse bile önce
- * BASAMAK_2 ve LOGARITMIK_3 ayarlanır, ardından OKU_S1 çalışır.
+ * Seri porttan bir satır okur ve processCommandLine'a iletir.
+ * İki geçişli sıralama (ayar önce, okuma sonra) processCommandLine içinde.
  */
 void handleSerialCommands() {
     if (Serial.available() == 0) return;
-
     String line = Serial.readStringUntil('\n');
-    line.trim();
-    line.toUpperCase();
-    if (line.length() == 0) return;
-
-    String tokens[16];
-    int    tokenCount = 0;
-
-    int start = 0;
-    int len   = line.length();
-    for (int i = 0; i <= len && tokenCount < 16; i++) {
-        char c = (i < len) ? line.charAt(i) : ' '; // sentinel
-        if (c == ' ' || c == ',') {
-            if (i > start) tokens[tokenCount++] = line.substring(start, i);
-            start = i + 1;
-        }
-    }
-
-    // 1. geçiş: ayar komutları
-    for (int i = 0; i < tokenCount; i++) {
-        if (!isReadCommand(tokens[i])) processCommand(tokens[i]);
-    }
-    // 2. geçiş: okuma komutları
-    for (int i = 0; i < tokenCount; i++) {
-        if (isReadCommand(tokens[i])) processCommand(tokens[i]);
-    }
+    processCommandLine(line, "serial");
 }
 
 // ============================================================
@@ -1632,6 +1716,146 @@ void handleTestMode(unsigned long currentMillis) {
 }
 
 // ============================================================
+// ========== KABLOSUZ FONKSİYONLARI =========================
+// ============================================================
+
+#if WIRELESS_ENABLED
+
+void setupWiFi() {
+    // STA: mevcut ağa bağlan (non-blocking, arka planda devam eder)
+    WiFi.begin(WIFI_STA_SSID, WIFI_STA_PASS);
+    // AP: kendi ağını aç
+    WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS);
+
+    tcpServer.begin();
+
+    // mDNS: picolor.local → TCP erişimi için
+    MDNS.begin("picolor");
+
+    // tcpRxLen dizisini sıfırla
+    for (int i = 0; i < MAX_TCP_CLIENTS; i++) tcpRxLen[i] = 0;
+
+    printStatusMessage(calibMode, "WIFI_AP_STARTED");
+}
+
+void setupBLE() {
+    if (!BLE.begin()) {
+        printErrorMessage(calibMode, "BLE_INIT_FAILED");
+        return;
+    }
+    BLE.setLocalName("PiColor");
+    BLE.setAdvertisedService(nusService);
+    nusService.addCharacteristic(nusTxChar);
+    nusService.addCharacteristic(nusRxChar);
+    BLE.addService(nusService);
+    BLE.advertise();
+    printStatusMessage(calibMode, "BLE_NUS_STARTED");
+}
+
+void bleSendLine(const String& line) {
+    if (!bleConnected) return;
+    String data = line + "\n";
+    nusTxChar.writeValue((const uint8_t*)data.c_str(), data.length());
+}
+
+void handleTCPClients() {
+    // Yeni bağlantı kabul et
+    WiFiClient newClient = tcpServer.accept();
+    if (newClient) {
+        bool accepted = false;
+        for (int i = 0; i < MAX_TCP_CLIENTS; i++) {
+            if (!tcpClients[i] || !tcpClients[i].connected()) {
+                tcpClients[i] = newClient;
+                tcpRxLen[i]   = 0;
+                accepted = true;
+                break;
+            }
+        }
+        if (!accepted) newClient.stop(); // doluysa reddet
+    }
+
+    // Bağlı istemcilerden gelen veriyi işle
+    for (int i = 0; i < MAX_TCP_CLIENTS; i++) {
+        if (!tcpClients[i] || !tcpClients[i].connected()) continue;
+
+        while (tcpClients[i].available()) {
+            char c = tcpClients[i].read();
+            if (c == '\n' || tcpRxLen[i] >= (int)sizeof(tcpRxBuf[i]) - 1) {
+                tcpRxBuf[i][tcpRxLen[i]] = '\0';
+                String line(tcpRxBuf[i]);
+                tcpRxLen[i] = 0;
+                line.trim();
+                if (line.length() == 0) continue;
+
+                // USER:username prefix ayrıştır
+                String username = "anonymous";
+                if (line.startsWith("USER:") || line.startsWith("user:")) {
+                    int spaceIdx = line.indexOf(' ', 5);
+                    if (spaceIdx > 5) {
+                        username = line.substring(5, spaceIdx);
+                        line     = line.substring(spaceIdx + 1);
+                    }
+                }
+                processCommandLine(line, username);
+            } else {
+                tcpRxBuf[i][tcpRxLen[i]++] = c;
+            }
+        }
+    }
+}
+
+void handleBLEClients() {
+    BLEDevice central = BLE.central();
+    if (central) {
+        if (!bleConnected) {
+            bleConnected = true;
+            bleRxLen     = 0;
+        }
+        if (nusRxChar.written()) {
+            int len = nusRxChar.valueLength();
+            const uint8_t *data = nusRxChar.value();
+            for (int i = 0; i < len && bleRxLen < (int)sizeof(bleRxBuf) - 1; i++) {
+                char c = (char)data[i];
+                bleRxBuf[bleRxLen++] = c;
+                if (c == '\n') {
+                    bleRxBuf[bleRxLen] = '\0';
+                    String line(bleRxBuf);
+                    bleRxLen = 0;
+                    line.trim();
+                    if (line.length() == 0) continue;
+
+                    String username = "anonymous";
+                    if (line.startsWith("USER:") || line.startsWith("user:")) {
+                        int spaceIdx = line.indexOf(' ', 5);
+                        if (spaceIdx > 5) {
+                            username = line.substring(5, spaceIdx);
+                            line     = line.substring(spaceIdx + 1);
+                        }
+                    }
+                    processCommandLine(line, username);
+                }
+            }
+        }
+    } else if (bleConnected) {
+        bleConnected = false;
+        bleRxLen     = 0;
+    }
+}
+
+#endif // WIRELESS_ENABLED
+
+#if LOGGING_ENABLED
+void appendUserLog(const String& username, const char* clientType, const String& command) {
+    if (!sdCardAvailable || !sdCardMounted) return;
+    File f = SD.open(LOG_FILE, FILE_WRITE);
+    if (!f) return;
+    f.printf("%lu,%s,%s,%s\n", millis(),
+             username.c_str(), clientType, command.c_str());
+    f.close();
+}
+#endif
+
+// ============================================================
 // ========== SETUP ==========================================
 // ============================================================
 
@@ -1670,6 +1894,11 @@ void setup() {
     // SD kart
     initSDCard();
 
+#if WIRELESS_ENABLED
+    setupWiFi();
+    setupBLE();
+#endif
+
     // İlk örnekleme ve LED güncelleme
     lastSampleTime  = millis();
     lastActivityTime = millis();
@@ -1693,4 +1922,8 @@ void loop() {
     handleDataSampling(currentMillis);                              // 4. Örnekleme
     handleTestMode(currentMillis);                                  // 5. Canlı akış
     handleSerialCommands();                                         // 6. Seri komutlar
+#if WIRELESS_ENABLED
+    handleTCPClients();                                             // 7. TCP komutlar
+    handleBLEClients();                                             // 8. BLE komutlar
+#endif
 }
