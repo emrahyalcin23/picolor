@@ -127,7 +127,7 @@
 #include <WiFi.h>
 #include <WiFiServer.h>
 #include <LEAmDNS.h>
-#include <ArduinoBLE.h>  // Arduino Library Manager: "ArduinoBLE"
+#include <BTstackLib.h>  // Pico W/2W BLE — arduino-pico core built-in (BTstack)
 #include <EEPROM.h>
 #endif
 
@@ -280,15 +280,16 @@ static WiFiClient  tcpClients[MAX_TCP_CLIENTS];
 static char        tcpRxBuf[MAX_TCP_CLIENTS][256];
 static int         tcpRxLen[MAX_TCP_CLIENTS];
 
-// BLE NUS (Nordic UART Service)
-static BLEService        nusService("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
-static BLECharacteristic nusTxChar("6E400003-B5A3-F393-E0A9-E50E24DCCA9E",
-                                    BLERead | BLENotify, 256);
-static BLECharacteristic nusRxChar("6E400002-B5A3-F393-E0A9-E50E24DCCA9E",
-                                    BLEWriteWithoutResponse | BLEWrite, 256);
-static bool bleConnected = false;
-static char bleRxBuf[256];
-static int  bleRxLen = 0;
+// BLE NUS (Nordic UART Service) — BTstack tabanlı
+static int    nusTxHandle    = 0;    // GATT TX characteristic handle
+static int    nusRxHandle    = 0;    // GATT RX characteristic handle
+static bool   bleConnected   = false;
+static char   bleRxBuf[256];
+static int    bleRxLen       = 0;
+static BD_ADDR bleCentralAddr;       // Bağlı merkezi cihazın adresi
+static bool   bleHasPendingCmd  = false;
+static String blePendingCmd;
+static String blePendingUser;
 
 // EEPROM düzeni — WiFi STA kimlik bilgileri kalıcı olarak burada saklanır
 #define EEPROM_SIZE        128
@@ -1877,24 +1878,77 @@ void setupWiFi() {
     printStatusMessage(calibMode, "WIFI_AP_STARTED");
 }
 
-void setupBLE() {
-    if (!BLE.begin()) {
-        printErrorMessage(calibMode, "BLE_INIT_FAILED");
-        return;
+// --- BTstack BLE callbacks ---
+
+static void onBLEDeviceConnected(BLEStatus status, BLEDevice *device) {
+    if (status == BLE_STATUS_OK) {
+        bleConnected = true;
+        bleRxLen     = 0;
+        memcpy(bleCentralAddr, *device->getAddress(), sizeof(BD_ADDR));
     }
-    BLE.setLocalName("PiColor");
-    BLE.setAdvertisedService(nusService);
-    nusService.addCharacteristic(nusTxChar);
-    nusService.addCharacteristic(nusRxChar);
-    BLE.addService(nusService);
-    BLE.advertise();
+}
+
+static void onBLEDeviceDisconnected(BLEDevice *device) {
+    bleConnected    = false;
+    bleRxLen        = 0;
+    bleHasPendingCmd = false;
+    BTstack.bleStartAdvertising();
+}
+
+static void onBLECharacteristicWrite(BLEDevice *device, int handle,
+                                     uint8_t *data, uint16_t size) {
+    if (handle != nusRxHandle) return;
+    for (int i = 0; i < (int)size && bleRxLen < (int)sizeof(bleRxBuf) - 1; i++) {
+        char c = (char)data[i];
+        bleRxBuf[bleRxLen++] = c;
+        if (c == '\n') {
+            bleRxBuf[bleRxLen] = '\0';
+            String line(bleRxBuf);
+            bleRxLen = 0;
+            line.trim();
+            if (line.length() == 0) continue;
+            String username = "anonymous";
+            if (line.startsWith("USER:") || line.startsWith("user:")) {
+                int spaceIdx = line.indexOf(' ', 5);
+                if (spaceIdx > 5) {
+                    username = line.substring(5, spaceIdx);
+                    line     = line.substring(spaceIdx + 1);
+                }
+            }
+            // processCommandLine'ı callback'ten değil loop'tan çağır
+            blePendingCmd      = line;
+            blePendingUser     = username;
+            bleHasPendingCmd   = true;
+        }
+    }
+}
+
+// --- BLE setup & send ---
+
+void setupBLE() {
+    BTstack.setBLEDeviceConnectedCallback(onBLEDeviceConnected);
+    BTstack.setBLEDeviceDisconnectedCallback(onBLEDeviceDisconnected);
+    BTstack.setGATTCharacteristicWrite(onBLECharacteristicWrite);
+
+    BTstack.setup("PiColor");
+
+    BTstack.addGATTService(new UUID("6E400001-B5A3-F393-E0A9-E50E24DCCA9E"));
+    nusTxHandle = BTstack.addGATTCharacteristicDynamic(
+        new UUID("6E400003-B5A3-F393-E0A9-E50E24DCCA9E"),
+        ATT_PROPERTY_READ | ATT_PROPERTY_NOTIFY, 0);
+    nusRxHandle = BTstack.addGATTCharacteristicDynamic(
+        new UUID("6E400002-B5A3-F393-E0A9-E50E24DCCA9E"),
+        ATT_PROPERTY_WRITE_WITHOUT_RESPONSE | ATT_PROPERTY_WRITE, 0);
+
+    BTstack.bleStartAdvertising();
     printStatusMessage(calibMode, "BLE_NUS_STARTED");
 }
 
 void bleSendLine(const String& line) {
     if (!bleConnected) return;
     String data = line + "\n";
-    nusTxChar.writeValue((const uint8_t*)data.c_str(), data.length());
+    BTstack.sendNotification(&bleCentralAddr, nusTxHandle,
+        (uint8_t*)data.c_str(), (uint16_t)data.length());
 }
 
 void handleTCPClients() {
@@ -1944,40 +1998,10 @@ void handleTCPClients() {
 }
 
 void handleBLEClients() {
-    BLEDevice central = BLE.central();
-    if (central) {
-        if (!bleConnected) {
-            bleConnected = true;
-            bleRxLen     = 0;
-        }
-        if (nusRxChar.written()) {
-            int len = nusRxChar.valueLength();
-            const uint8_t *data = nusRxChar.value();
-            for (int i = 0; i < len && bleRxLen < (int)sizeof(bleRxBuf) - 1; i++) {
-                char c = (char)data[i];
-                bleRxBuf[bleRxLen++] = c;
-                if (c == '\n') {
-                    bleRxBuf[bleRxLen] = '\0';
-                    String line(bleRxBuf);
-                    bleRxLen = 0;
-                    line.trim();
-                    if (line.length() == 0) continue;
-
-                    String username = "anonymous";
-                    if (line.startsWith("USER:") || line.startsWith("user:")) {
-                        int spaceIdx = line.indexOf(' ', 5);
-                        if (spaceIdx > 5) {
-                            username = line.substring(5, spaceIdx);
-                            line     = line.substring(spaceIdx + 1);
-                        }
-                    }
-                    processCommandLine(line, username, "ble");
-                }
-            }
-        }
-    } else if (bleConnected) {
-        bleConnected = false;
-        bleRxLen     = 0;
+    BTstack.loop();
+    if (bleHasPendingCmd) {
+        bleHasPendingCmd = false;
+        processCommandLine(blePendingCmd, blePendingUser, "ble");
     }
 }
 
