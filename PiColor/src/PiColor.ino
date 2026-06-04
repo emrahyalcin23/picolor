@@ -32,6 +32,12 @@
  *
  * KOMUT LİSTESİ (YARDIM / HELP)
  * ------------------------------
+ *  WIFI_SSID=<ag_adi>           WiFi ağ adını ayarla ve flash'a kaydet
+ *  WIFI_PASS=<sifre>           WiFi şifresini ayarla ve flash'a kaydet
+ *  WIFI_BAGLAN                 Kayıtlı kimlik bilgileriyle STA yeniden bağlan
+ *  WIFI_BILGI                  Mevcut WiFi ayarlarını göster (şifre gizli)
+ *  WIFI_SIFIRLA                Kayıtlı WiFi bilgilerini sil
+ *
  *  KIMSIN                      kimlik
  *  MOD                         mevcut modu göster
  *  MOD_STABIL / MOD_DINAMIK    global modu değiştir
@@ -96,8 +102,6 @@
 
 // === WIRELESS CONFIG (WIRELESS_ENABLED=true ise geçerli) ===
 #if WIRELESS_ENABLED
-#define WIFI_STA_SSID   "router_ssid"
-#define WIFI_STA_PASS   "router_pass"
 #define WIFI_AP_SSID    "PiColor"
 #define WIFI_AP_PASS    "picolor123"
 #define TCP_PORT        8266
@@ -124,6 +128,7 @@
 #include <WiFiServer.h>
 #include <LEAmDNS.h>
 #include <ArduinoBLE.h>  // Arduino Library Manager: "ArduinoBLE"
+#include <EEPROM.h>
 #endif
 
 // ============================================================
@@ -284,6 +289,17 @@ static BLECharacteristic nusRxChar("6E400002-B5A3-F393-E0A9-E50E24DCCA9E",
 static bool bleConnected = false;
 static char bleRxBuf[256];
 static int  bleRxLen = 0;
+
+// EEPROM düzeni — WiFi STA kimlik bilgileri kalıcı olarak burada saklanır
+#define EEPROM_SIZE        128
+#define EEPROM_MAGIC       0xAB
+#define EEPROM_SSID_OFFSET 1
+#define EEPROM_SSID_LEN    33   // 32 karakter + null
+#define EEPROM_PASS_OFFSET 34
+#define EEPROM_PASS_LEN    65   // 64 karakter + null
+
+static char wifiStaSSID[EEPROM_SSID_LEN];
+static char wifiStaPass[EEPROM_PASS_LEN];
 #endif
 
 // ============================================================
@@ -1277,6 +1293,13 @@ void showHelp() {
     Serial.println("OLCEK / SCALE            mevcut format ayarlarini goster");
     Serial.println("");
     Serial.println("YARDIM / HELP            bu ekran");
+    Serial.println("");
+    Serial.println("--- WIFI YAPILANDIRMA ---");
+    Serial.println("WIFI_SSID=<ag_adi>       WiFi ag adini ayarla ve kaydet");
+    Serial.println("WIFI_PASS=<sifre>        WiFi sifresini ayarla ve kaydet");
+    Serial.println("WIFI_BAGLAN              Kayitli bilgilerle yeniden baglan");
+    Serial.println("WIFI_BILGI               Mevcut WiFi ayarlarini goster");
+    Serial.println("WIFI_SIFIRLA             Kayitli WiFi bilgilerini sil");
     Serial.println("========================\n");
 }
 
@@ -1295,6 +1318,26 @@ void showHelp() {
 void processCommandLine(String line, const String& username) {
     currentUsername = username;
     line.trim();
+    if (line.length() == 0) { currentUsername = "serial"; return; }
+
+#if WIRELESS_ENABLED
+    // WIFI_SSID= ve WIFI_PASS= — değer case-sensitive olduğu için toUpperCase'den önce işle
+    {
+        String upper = line;
+        upper.toUpperCase();
+        if (upper.startsWith("WIFI_SSID=")) {
+            setWiFiSSID(line.substring(10));
+            currentUsername = "serial";
+            return;
+        }
+        if (upper.startsWith("WIFI_PASS=")) {
+            setWiFiPass(line.substring(10));
+            currentUsername = "serial";
+            return;
+        }
+    }
+#endif
+
     line.toUpperCase();
     if (line.length() == 0) { currentUsername = "serial"; return; }
 
@@ -1538,6 +1581,21 @@ void processCommand(String cmd) {
         showHelp();
     }
 
+#if WIRELESS_ENABLED
+    // ====================================================
+    // WiFi YAPILANDIRMA
+    // ====================================================
+    else if (cmd == "WIFI_BILGI") {
+        showWiFiBilgi();
+    }
+    else if (cmd == "WIFI_BAGLAN") {
+        reconnectWiFiSTA();
+    }
+    else if (cmd == "WIFI_SIFIRLA") {
+        clearWiFiCredentials();
+    }
+#endif
+
     // ====================================================
     // BİLİNMEYEN KOMUT
     // ====================================================
@@ -1721,10 +1779,78 @@ void handleTestMode(unsigned long currentMillis) {
 
 #if WIRELESS_ENABLED
 
+void loadWiFiCredentials() {
+    if (EEPROM.read(0) != EEPROM_MAGIC) {
+        wifiStaSSID[0] = '\0';
+        wifiStaPass[0] = '\0';
+        return;
+    }
+    for (int i = 0; i < EEPROM_SSID_LEN; i++)
+        wifiStaSSID[i] = (char)EEPROM.read(EEPROM_SSID_OFFSET + i);
+    for (int i = 0; i < EEPROM_PASS_LEN; i++)
+        wifiStaPass[i] = (char)EEPROM.read(EEPROM_PASS_OFFSET + i);
+    wifiStaSSID[EEPROM_SSID_LEN - 1] = '\0';
+    wifiStaPass[EEPROM_PASS_LEN - 1]  = '\0';
+}
+
+void saveWiFiCredentials() {
+    EEPROM.write(0, EEPROM_MAGIC);
+    for (int i = 0; i < EEPROM_SSID_LEN; i++)
+        EEPROM.write(EEPROM_SSID_OFFSET + i, (uint8_t)wifiStaSSID[i]);
+    for (int i = 0; i < EEPROM_PASS_LEN; i++)
+        EEPROM.write(EEPROM_PASS_OFFSET + i, (uint8_t)wifiStaPass[i]);
+    EEPROM.commit();
+}
+
+void setWiFiSSID(const String& ssid) {
+    strncpy(wifiStaSSID, ssid.c_str(), EEPROM_SSID_LEN - 1);
+    wifiStaSSID[EEPROM_SSID_LEN - 1] = '\0';
+    saveWiFiCredentials();
+    char meta[48];
+    snprintf(meta, sizeof(meta), "WIFI_SSID_SAVED=%s", wifiStaSSID);
+    printStatusMessage(calibMode, meta);
+}
+
+void setWiFiPass(const String& pass) {
+    strncpy(wifiStaPass, pass.c_str(), EEPROM_PASS_LEN - 1);
+    wifiStaPass[EEPROM_PASS_LEN - 1] = '\0';
+    saveWiFiCredentials();
+    printStatusMessage(calibMode, "WIFI_PASS_SAVED");
+}
+
+void reconnectWiFiSTA() {
+    WiFi.disconnect();
+    if (strlen(wifiStaSSID) > 0) {
+        WiFi.begin(wifiStaSSID, wifiStaPass);
+        printStatusMessage(calibMode, "WIFI_STA_RECONNECTING");
+    } else {
+        printStatusMessage(calibMode, "WIFI_STA_NO_CREDENTIALS");
+    }
+}
+
+void showWiFiBilgi() {
+    char meta[80];
+    if (strlen(wifiStaSSID) > 0) {
+        snprintf(meta, sizeof(meta), "STA_SSID=%s,STA_PASS=***,AP=%s", wifiStaSSID, WIFI_AP_SSID);
+    } else {
+        snprintf(meta, sizeof(meta), "STA_SSID=<not_set>,AP=%s", WIFI_AP_SSID);
+    }
+    printStatusMessage(calibMode, meta);
+}
+
+void clearWiFiCredentials() {
+    EEPROM.write(0, 0x00);
+    EEPROM.commit();
+    wifiStaSSID[0] = '\0';
+    wifiStaPass[0] = '\0';
+    printStatusMessage(calibMode, "WIFI_CREDENTIALS_CLEARED");
+}
+
 void setupWiFi() {
-    // STA: mevcut ağa bağlan (non-blocking, arka planda devam eder)
-    WiFi.begin(WIFI_STA_SSID, WIFI_STA_PASS);
-    // AP: kendi ağını aç
+    // STA: flash'tan yüklenen kimlik bilgileriyle ağa bağlan (kayıt varsa)
+    if (strlen(wifiStaSSID) > 0)
+        WiFi.begin(wifiStaSSID, wifiStaPass);
+    // AP: kendi ağını her zaman aç (yapılandırma için)
     WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS);
 
     tcpServer.begin();
@@ -1895,6 +2021,8 @@ void setup() {
     initSDCard();
 
 #if WIRELESS_ENABLED
+    EEPROM.begin(EEPROM_SIZE);
+    loadWiFiCredentials();
     setupWiFi();
     setupBLE();
 #endif
