@@ -97,8 +97,8 @@
 
 #define WIRELESS_ENABLED  true   // WiFi+BLE aktif/pasif — default: aktif
 #define LOGGING_ENABLED   false  // Kullanıcı logu aktif/pasif — default: pasif
-                                 // UYARI: SD kart olmadan LOGGING_ENABLED=true
-                                 // Pico flash yazma limitini hızla tüketir!
+                                 // SD kart takılı   → komutlar /user_log.csv'ye kaydedilir
+                                 // SD kart takılı değil → loglama otomatik devre dışı (flash yazılmaz)
 
 // === WIRELESS CONFIG (WIRELESS_ENABLED=true ise geçerli) ===
 #if WIRELESS_ENABLED
@@ -324,6 +324,9 @@ enum OutputType {
 // Forward declaration — tanımı wireless fonksiyonlar bölümündedir
 #if WIRELESS_ENABLED
 void bleSendLine(const String& line);
+#endif
+#if LOGGING_ENABLED
+void appendUserLog(const String& username, const char* clientType, const String& command);
 #endif
 
 /*
@@ -1315,10 +1318,20 @@ void showHelp() {
  * username: "serial" | "anonymous" | kullanıcı adı
  * currentUsername global'ı güncellenir — broadcastLine bunu kullanır.
  */
-void processCommandLine(String line, const String& username) {
+void processCommandLine(String line, const String& username, const char* clientType = "serial") {
     currentUsername = username;
     line.trim();
     if (line.length() == 0) { currentUsername = "serial"; return; }
+
+#if LOGGING_ENABLED
+    {
+        String logLine = line;
+        String logUpper = line;
+        logUpper.toUpperCase();
+        if (logUpper.startsWith("WIFI_PASS=")) logLine = "WIFI_PASS=***";
+        appendUserLog(username, clientType, logLine);
+    }
+#endif
 
 #if WIRELESS_ENABLED
     // WIFI_SSID= ve WIFI_PASS= — değer case-sensitive olduğu için toUpperCase'den önce işle
@@ -1922,7 +1935,7 @@ void handleTCPClients() {
                         line     = line.substring(spaceIdx + 1);
                     }
                 }
-                processCommandLine(line, username);
+                processCommandLine(line, username, "tcp");
             } else {
                 tcpRxBuf[i][tcpRxLen[i]++] = c;
             }
@@ -1958,7 +1971,7 @@ void handleBLEClients() {
                             line     = line.substring(spaceIdx + 1);
                         }
                     }
-                    processCommandLine(line, username);
+                    processCommandLine(line, username, "ble");
                 }
             }
         }
