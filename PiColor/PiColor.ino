@@ -112,7 +112,9 @@
 #include <WiFiServer.h>
 #include <LEAmDNS.h>
 #include <BTstackLib.h>  // Pico W/2W BLE — arduino-pico core built-in (BTstack)
-extern "C" { #include "ble/att_server.h" }  // att_server_notify() için
+extern "C" {
+#include "ble/att_server.h"
+}
 #include <EEPROM.h>
 #endif
 
