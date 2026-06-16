@@ -1397,7 +1397,7 @@ void showDurum() {
     printStatusMessage(calibMode, meta);
 
     // WiFi STA (ev ağı — akıllı ev entegrasyonu için)
-    if (WiFi.status() == WL_CONNECTED) {
+    if (strlen(wifiStaSSID) > 0 && WiFi.status() == WL_CONNECTED) {
         snprintf(meta, sizeof(meta), "STA_SSID=%s,STA_IP=%s",
                  wifiStaSSID, WiFi.localIP().toString().c_str());
     } else if (strlen(wifiStaSSID) > 0) {
@@ -1459,6 +1459,12 @@ void processCommandLine(String line, const String& username, const char* clientT
         }
         if (upper.startsWith("WIFI_STA_PASS=")) {
             setWiFiStaPass(line.substring(14));
+            currentUsername = "serial";
+            return;
+        }
+        if (upper.startsWith("TCP_PORT=")) {
+            int p = line.substring(9).toInt();
+            if (p > 0 && p < 65536) changeTcpPort((uint16_t)p);
             currentUsername = "serial";
             return;
         }
@@ -1990,6 +1996,20 @@ void restartAP() {
     char meta[80];
     snprintf(meta, sizeof(meta), "AP_RESTARTED,SSID=%s,IP=%s,PORT=%d",
              cfgWifiApSSID, WiFi.softAPIP().toString().c_str(), cfgTcpPort);
+    printStatusMessage(calibMode, meta);
+}
+
+void changeTcpPort(uint16_t newPort) {
+    if (tcpServer) {
+        tcpServer->stop();
+        delete tcpServer;
+        tcpServer = nullptr;
+    }
+    cfgTcpPort = newPort;
+    tcpServer = new WiFiServer(cfgTcpPort);
+    tcpServer->begin();
+    char meta[48];
+    snprintf(meta, sizeof(meta), "TCP_PORT_CHANGED=%d", cfgTcpPort);
     printStatusMessage(calibMode, meta);
 }
 
