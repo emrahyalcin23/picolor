@@ -112,6 +112,7 @@
 #include <WiFiServer.h>
 #include <LEAmDNS.h>
 #include <BTstackLib.h>  // Pico W/2W BLE — arduino-pico core built-in (BTstack)
+extern "C" { #include "ble/att_server.h" }  // att_server_notify() için
 #include <EEPROM.h>
 #endif
 
@@ -278,7 +279,7 @@ static int    nusRxHandle    = 0;    // GATT RX characteristic handle
 static bool   bleConnected   = false;
 static char   bleRxBuf[256];
 static int    bleRxLen       = 0;
-static BD_ADDR bleCentralAddr;       // Bağlı merkezi cihazın adresi
+static hci_con_handle_t bleCentralHandle = HCI_CON_HANDLE_INVALID;
 static bool   bleHasPendingCmd  = false;
 static String blePendingCmd;
 static String blePendingUser;
@@ -1950,22 +1951,23 @@ void setupWiFi() {
 
 static void onBLEDeviceConnected(BLEStatus status, BLEDevice *device) {
     if (status == BLE_STATUS_OK) {
-        bleConnected = true;
-        bleRxLen     = 0;
-        memcpy(bleCentralAddr, *device->getAddress(), sizeof(BD_ADDR));
+        bleConnected    = true;
+        bleRxLen        = 0;
+        bleCentralHandle = device->getHandle();
     }
 }
 
 static void onBLEDeviceDisconnected(BLEDevice *device) {
-    bleConnected    = false;
-    bleRxLen        = 0;
+    bleConnected     = false;
+    bleRxLen         = 0;
     bleHasPendingCmd = false;
-    BTstack.bleStartAdvertising();
+    bleCentralHandle = HCI_CON_HANDLE_INVALID;
+    BTstack.startAdvertising();
 }
 
-static void onBLECharacteristicWrite(BLEDevice *device, int handle,
-                                     uint8_t *data, uint16_t size) {
-    if (handle != nusRxHandle) return;
+static int onBLECharacteristicWrite(uint16_t handle,
+                                    uint8_t *data, uint16_t size) {
+    if (handle != (uint16_t)nusRxHandle) return 0;
     for (int i = 0; i < (int)size && bleRxLen < (int)sizeof(bleRxBuf) - 1; i++) {
         char c = (char)data[i];
         bleRxBuf[bleRxLen++] = c;
@@ -1989,6 +1991,7 @@ static void onBLECharacteristicWrite(BLEDevice *device, int handle,
             bleHasPendingCmd   = true;
         }
     }
+    return 0;
 }
 
 // --- BLE setup & send ---
@@ -2008,14 +2011,14 @@ void setupBLE() {
         new UUID("6E400002-B5A3-F393-E0A9-E50E24DCCA9E"),
         ATT_PROPERTY_WRITE_WITHOUT_RESPONSE | ATT_PROPERTY_WRITE, 0);
 
-    BTstack.bleStartAdvertising();
+    BTstack.startAdvertising();
     printStatusMessage(calibMode, "BLE_NUS_STARTED");
 }
 
 void bleSendLine(const String& line) {
-    if (!bleConnected) return;
+    if (!bleConnected || bleCentralHandle == HCI_CON_HANDLE_INVALID) return;
     String data = line + "\n";
-    BTstack.sendNotification(&bleCentralAddr, nusTxHandle,
+    att_server_notify(bleCentralHandle, nusTxHandle,
         (uint8_t*)data.c_str(), (uint16_t)data.length());
 }
 
