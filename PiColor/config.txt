@@ -8,14 +8,26 @@
 #   - Yorum satirlari # ile baslar
 #   - Bos satirlar gozardi edilir
 #   - Format: anahtar=deger (bosluk olmamali)
+#   - Sifredeki = isareti sorunsuz calisir: wifi_ap_pass==sifre
 # ============================================================
 
-# WiFi Erisim Noktasi (AP) ayarlari
+# --- Kablosuz iletisim ---
 wifi_ap_ssid=PiColor
 wifi_ap_pass=picolor123
-
-# TCP sunucu portu (varsayilan: 8266)
 tcp_port=8266
 
-# Kullanici log dosyasi (LOGGING_ENABLED=true ise gecerli)
+# --- Baslangic olcek ayarlari ---
+# basamak     : ondalik basamak sayisi (0-6, varsayilan: 1)
+# logaritmik  : Weber-Fechner log donusumu (true/false, varsayilan: false)
+# log_dekad   : logaritmik dinamik aralik (1.0-5.0, varsayilan: 3.0)
+#               2=100:1  3=1000:1 (onerilen)  4=10000:1
+# mod         : STABIL veya DINAMIK (varsayilan: STABIL)
+# dual_cikti  : ham+islenmiş cikti (true/false, varsayilan: true)
+basamak=1
+logaritmik=false
+log_dekad=3.0
+mod=STABIL
+dual_cikti=true
+
+# --- Log dosyasi (LOGGING_ENABLED=true ise gecerli) ---
 log_file=/user_log.csv

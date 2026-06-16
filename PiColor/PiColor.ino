@@ -283,6 +283,12 @@ static bool   bleHasPendingCmd  = false;
 static String blePendingCmd;
 static String blePendingUser;
 
+// !! EEPROM / FLASH YAZMA LİMİTİ UYARISI !!
+// RP2040 flash belleği yaklaşık 100.000 blok silme döngüsüne sahiptir.
+// EEPROM yalnızca WIFI_SSID= / WIFI_PASS= komutlarında yazılır;
+// önyükleme başına veya döngüsel olarak ASLA yazılmamalıdır.
+// Çalışma zamanı ayarları için SD karttaki config.txt kullanılır.
+
 // EEPROM düzeni — WiFi STA kimlik bilgileri kalıcı olarak burada saklanır
 #define EEPROM_SIZE        128
 #define EEPROM_MAGIC       0xAB
@@ -666,6 +672,19 @@ void loadSDConfig() {
         } else if (key == "tcp_port") {
             int p = val.toInt();
             if (p > 0 && p <= 65535) cfgTcpPort = p;
+        } else if (key == "basamak") {
+            int d = val.toInt();
+            if (d >= 0 && d <= 6) outputDecimals = d;
+        } else if (key == "logaritmik") {
+            logarithmicOutput = (val == "true" || val == "1");
+        } else if (key == "log_dekad") {
+            float d = val.toFloat();
+            if (d >= 1.0f && d <= 5.0f) logDecades = d;
+        } else if (key == "mod") {
+            if (val == "DINAMIK") calibMode = 1;
+            else                  calibMode = 0;
+        } else if (key == "dual_cikti") {
+            dualOutputActive = (val == "true" || val == "1");
         }
 #if LOGGING_ENABLED
         else if (key == "log_file") {
