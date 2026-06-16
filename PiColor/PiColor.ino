@@ -4,7 +4,7 @@
  * Copyright (c) 2026 Emrah YALÇIN
  * MIT License — https://opensource.org/licenses/MIT
  * ------------------------------------------------------------
- * VERSİYON : d6
+ * VERSİYON : v0.06.03
  * TANIM    : D5 üzerine kablosuz iletişim katmanı (WiFi AP+STA,
  *            TCP port 8266, BLE NUS). Mevcut Serial protokolü
  *            birebir korunur; WIRELESS_ENABLED=false → d5 davranışı.
@@ -96,7 +96,7 @@
 // ÖZELLIK ANAHTARLARI
 // ============================================================
 
-#define FIRMWARE_VERSION  "d6"   // Firmware sürümü
+#define FIRMWARE_VERSION  "v0.06.03"   // Firmware sürümü
 #define WIRELESS_ENABLED  true   // WiFi+BLE aktif/pasif — default: aktif
 #define LOGGING_ENABLED   false  // Kullanıcı logu aktif/pasif — default: pasif
                                  // SD kart takılı   → komutlar /user_log.csv'ye kaydedilir
