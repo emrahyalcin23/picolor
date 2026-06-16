@@ -4,7 +4,7 @@
  * Copyright (c) 2026 Emrah YALÇIN
  * MIT License — https://opensource.org/licenses/MIT
  * ------------------------------------------------------------
- * VERSİYON : v0.06.04
+ * VERSİYON : v0.06.05
  * TANIM    : SD karttaki config.txt üzerinden runtime yapılandırma
  *            (WiFi AP SSID/şifre, TCP port, log dosyası). SD kart
  *            yoksa veya dosya bulunamazsa config.h'deki DEFAULT_*
@@ -94,7 +94,7 @@
  * ============================================================
  */
 
-#define FIRMWARE_VERSION  "v0.06.04"   // Firmware sürümü
+#define FIRMWARE_VERSION  "v0.06.05"   // Firmware sürümü
 
 #include "config.h"
 
@@ -271,7 +271,7 @@ static char cfgLogFile[64]    = DEFAULT_LOG_FILE;
 #endif
 
 #if WIRELESS_ENABLED
-static WiFiServer* tcpServer  = nullptr;
+static WiFiServer  tcpServer(0);  // port begin() ile verilir
 static WiFiClient  tcpClients[MAX_TCP_CLIENTS];
 static char        tcpRxBuf[MAX_TCP_CLIENTS][256];
 static int         tcpRxLen[MAX_TCP_CLIENTS];
@@ -1976,8 +1976,7 @@ void setupWiFi() {
     // AP IP atanana kadar bekle — atlamadan begin() çağrılırsa TCP başlamayabilir
     while (WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) delay(10);
 
-    tcpServer = new WiFiServer(cfgTcpPort);
-    tcpServer->begin();
+    tcpServer.begin(cfgTcpPort);
 
     // mDNS: picolor.local → TCP erişimi için
     MDNS.begin("picolor");
@@ -2065,7 +2064,7 @@ void bleSendLine(const String& line) {
 
 void handleTCPClients() {
     // Yeni bağlantı kabul et
-    WiFiClient newClient = tcpServer->accept();
+    WiFiClient newClient = tcpServer.accept();
     if (newClient) {
         bool accepted = false;
         for (int i = 0; i < MAX_TCP_CLIENTS; i++) {
