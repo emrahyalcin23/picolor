@@ -41,6 +41,7 @@
  *
  *  KIMSIN                      kimlik
  *  VERSIYON / VERSION          firmware sürümünü göster
+ *  DURUM / STATUS              sistem durumunu göster (WiFi, BLE, ayarlar)
  *  MOD                         mevcut modu göster
  *  MOD_STABIL / MOD_DINAMIK    global modu değiştir
  *  KATSAYILAR / COEFF          wR wG wB wL değerlerini göster
@@ -1324,6 +1325,7 @@ void showHelp() {
     Serial.println("\n=== PICOLOR KOMUTLARI ===");
     Serial.println("KIMSIN                   kimlik");
     Serial.println("VERSIYON / VERSION       firmware surumu");
+    Serial.println("DURUM / STATUS           sistem durumu (WiFi, BLE, ayarlar)");
     Serial.println("MOD                      mevcut modu goster");
     Serial.println("MOD_STABIL               stabil moda gec (kalici)");
     Serial.println("MOD_DINAMIK              dinamik moda gec (kalici)");
@@ -1372,6 +1374,38 @@ void showHelp() {
     Serial.println("WIFI_BILGI               Mevcut WiFi ayarlarini goster");
     Serial.println("WIFI_SIFIRLA             Kayitli WiFi bilgilerini sil");
     Serial.println("========================\n");
+}
+
+void showDurum() {
+    char meta[160];
+
+    // Firmware
+    printStatusMessage(calibMode, "VER=" FIRMWARE_VERSION);
+
+    // SD kart
+    printStatusMessage(calibMode, sdCardMounted ? "SD=MOUNTED" : "SD=NONE");
+
+    // Ölçek ayarları
+    snprintf(meta, sizeof(meta), "DEC=%d,LOG=%s,LOG_DEKAD=%.1f,MOD=%s,DUAL=%s",
+             outputDecimals,
+             logarithmicOutput ? "ON" : "OFF",
+             logDecades,
+             calibMode == 0 ? "STABIL" : "DINAMIK",
+             dualOutputActive ? "ON" : "OFF");
+    printStatusMessage(calibMode, meta);
+
+#if WIRELESS_ENABLED
+    // WiFi AP
+    snprintf(meta, sizeof(meta), "AP_SSID=%s,AP_IP=%s,TCP_PORT=%d",
+             cfgWifiApSSID,
+             WiFi.softAPIP().toString().c_str(),
+             cfgTcpPort);
+    printStatusMessage(calibMode, meta);
+
+    // BLE
+    snprintf(meta, sizeof(meta), "BLE=%s", bleConnected ? "CONNECTED" : "ADVERTISING");
+    printStatusMessage(calibMode, meta);
+#endif
 }
 
 // ============================================================
@@ -1470,6 +1504,9 @@ void processCommand(String cmd) {
     }
     else if (cmd == "VERSIYON" || cmd == "VERSION") {
         printStatusMessage(calibMode, "VERSION=" FIRMWARE_VERSION);
+    }
+    else if (cmd == "DURUM" || cmd == "STATUS") {
+        showDurum();
     }
     else if (cmd == "MOD") {
         showCurrentMode();
@@ -1936,6 +1973,8 @@ void setupWiFi() {
         WiFi.begin(wifiStaSSID, wifiStaPass);
     // AP: kendi ağını her zaman aç (yapılandırma için)
     WiFi.softAP(cfgWifiApSSID, cfgWifiApPass);
+    // AP IP atanana kadar bekle — atlamadan begin() çağrılırsa TCP başlamayabilir
+    while (WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) delay(10);
 
     tcpServer = new WiFiServer(cfgTcpPort);
     tcpServer->begin();
