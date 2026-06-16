@@ -1395,6 +1395,15 @@ void showHelp() {
     Serial.println("========================\n");
 }
 
+// CYW43 AP+STA eşzamanlı modda softAPIP() 0.0.0.0 dönebiliyor; default IP'ye fallback yap
+static const char* apIPStr() {
+    IPAddress ip = WiFi.softAPIP();
+    if (ip == IPAddress(0,0,0,0)) return "192.168.4.1";
+    static char buf[16];
+    snprintf(buf, sizeof(buf), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+    return buf;
+}
+
 void showDurum() {
     char meta[160];
 
@@ -1416,7 +1425,7 @@ void showDurum() {
     // WiFi AP (her zaman açık — doğrudan bağlantı için)
     snprintf(meta, sizeof(meta), "AP_SSID=%s,AP_IP=%s,PORT=%d",
              cfgWifiApSSID,
-             WiFi.softAPIP().toString().c_str(),
+             apIPStr(),
              cfgTcpPort);
     printStatusMessage(calibMode, meta);
 
@@ -2027,7 +2036,7 @@ void restartAP() {
     while (WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) delay(10);
     char meta[80];
     snprintf(meta, sizeof(meta), "AP_RESTARTED,SSID=%s,IP=%s,PORT=%d",
-             cfgWifiApSSID, WiFi.softAPIP().toString().c_str(), cfgTcpPort);
+             cfgWifiApSSID, apIPStr(), cfgTcpPort);
     printStatusMessage(calibMode, meta);
 }
 
@@ -2074,7 +2083,7 @@ void showWiFiBilgi() {
     printStatusMessage(calibMode, meta);
 
     snprintf(meta, sizeof(meta), "AP_SSID=%s,AP_IP=%s,PORT=%d",
-             cfgWifiApSSID, WiFi.softAPIP().toString().c_str(), cfgTcpPort);
+             cfgWifiApSSID, apIPStr(), cfgTcpPort);
     printStatusMessage(calibMode, meta);
 }
 
@@ -2117,7 +2126,7 @@ void setupWiFi() {
 
     char apMeta[96];
     snprintf(apMeta, sizeof(apMeta), "WIFI_AP_STARTED,IP=%s,PORT=%d",
-             WiFi.softAPIP().toString().c_str(), cfgTcpPort);
+             apIPStr(), cfgTcpPort);
     printStatusMessage(calibMode, apMeta);
 }
 
@@ -2237,6 +2246,7 @@ void handleTCPClients() {
                                + ";0;0;0;TCP_CONNECTED=PICOLOR_" FIRMWARE_VERSION;
                 tcpClients[i].println(welcome);
                 // Serial ve diğer kanallara bildir
+                currentUsername = "tcp";
                 printStatusMessage(calibMode, "TCP_CLIENT_CONNECTED");
                 break;
             }
