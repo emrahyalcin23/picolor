@@ -2081,9 +2081,12 @@ void showWiFiBilgi() {
 void clearWiFiCredentials() {
     EEPROM.write(0, 0x00);
     EEPROM.commit();
-    wifiStaSSID[0] = '\0';
-    wifiStaPass[0] = '\0';
+    // EEPROM silindi — .ino'daki default değerlere geri dön
+    strlcpy(wifiStaSSID, DEFAULT_WIFI_STA_SSID, sizeof(wifiStaSSID));
+    strlcpy(wifiStaPass, DEFAULT_WIFI_STA_PASS, sizeof(wifiStaPass));
     printStatusMessage(calibMode, "WIFI_CREDENTIALS_CLEARED");
+    // Default doluysa hemen bağlanmayı dene
+    reconnectWiFiSTA();
 }
 
 void setupWiFi() {
