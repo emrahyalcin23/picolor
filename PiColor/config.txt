@@ -1,33 +1,110 @@
+# ============================================================
 # PiColor Kullanici Yapilandirmasi
 # ============================================================
-# Bu dosyayi SD karta kopyalayin. Cihaz her acildiginda bu
-# dosyayi okur; dosya bulunamazsa varsayilan degerler kullanilir.
-# Degisiklikler cihaz yeniden baslatildiginda aktif olur.
+# Bu dosyayi SD karta kopyalayin. Cihaz her acildiginda okur;
+# dosya yoksa veya SD kart takili degilse varsayilan degerler
+# gecerli olur. Degisiklikler yeniden baslatmada aktif olur.
 #
 # Kurallar:
-#   - Yorum satirlari # ile baslar
-#   - Bos satirlar gozardi edilir
-#   - Format: anahtar=deger (bosluk olmamali)
+#   - Yorum satirlari # ile baslar, bos satirlar gozardi edilir
+#   - Format: anahtar=deger (aralik boslugu olmamali)
 #   - Sifredeki = isareti sorunsuz calisir: wifi_ap_pass==sifre
 # ============================================================
 
-# --- Kablosuz iletisim ---
+
+# ============================================================
+# KABLOSUZ ILETISIM
+# ============================================================
+
+# wifi_ap_ssid — Cihazin olusturdugu Wi-Fi aginin adi.
+#   Bu aga baglanan istemciler TCP uzerinden veri alabilir.
 wifi_ap_ssid=PiColor
+
+# wifi_ap_pass — Yukaridaki Wi-Fi aginin sifresi.
+#   WPA2 ile korunur; en az 8 karakter olmalidir.
 wifi_ap_pass=picolor123
+
+# tcp_port — TCP baglanti portu (varsayilan: 8266).
+#   Istemci yazilimi bu porta baglanir. Diger cihazlarla
+#   catisma olursa degistirin (ornek: 8888).
 tcp_port=8266
 
-# --- Baslangic olcek ayarlari ---
-# basamak     : ondalik basamak sayisi (0-6, varsayilan: 1)
-# logaritmik  : Weber-Fechner log donusumu (true/false, varsayilan: false)
-# log_dekad   : logaritmik dinamik aralik (1.0-5.0, varsayilan: 3.0)
-#               2=100:1  3=1000:1 (onerilen)  4=10000:1
-# mod         : STABIL veya DINAMIK (varsayilan: STABIL)
-# dual_cikti  : ham+islenmiş cikti (true/false, varsayilan: true)
+
+# ============================================================
+# CIKTI FORMAT AYARLARI
+# ============================================================
+
+# basamak — Cikti degerlerindeki ondalik basamak sayisi (0-6).
+#   Dusuk deger: daha yuvarlak, okunmasi kolay cikti.
+#   Yuksek deger: daha hassas, veri analizi icin uygundur.
+#   Ornek: basamak=0 → "47"    basamak=3 → "47.382"
+#   Varsayilan: 1
 basamak=1
+
+# logaritmik — Weber-Fechner logaritmik donusumu ac/kapat.
+#
+#   false (kapali) — Ham degerler 0-100 arasi dogrusal (lineer)
+#   olarak ciktilanir. Fiziksel isik yogunluguyla birebir orantili.
+#   Acik ortamda ve nesnel karsilastirmali olcumlerde tercih edilir.
+#
+#   true (acik) — Insan gozunun algiladigi sekliyle cikti uretir.
+#   Goz, parlaklik farklarini oransal olarak algilar: loş ısıkta
+#   kucuk farklar belirgin gorunurken, cok parlak ısıkta buyuk
+#   farklar bile kucuk hissedilir. Bu donusum bunu modellemek icin
+#   kullanilir.
+#
+#   Normal log'dan farki: standart log10(x) formulu 0'i eksi
+#   sonsuz yapar ve aralik bozulur. Buradaki Weber-Fechner formulu
+#   f(0)=0 ve f(100)=100 sartlarini korur; aralik her zaman
+#   0-100 kalir ve log_dekad parametresiyle baskı orani ayarlanir.
+#
+#   Varsayilan: false
 logaritmik=false
+
+# log_dekad — Logaritmik modda dinamik aralik (1.0 - 5.0).
+#   Yalnizca logaritmik=true iken etkilidir.
+#
+#   Aralik ne kadar geniş olursa, loş ısik degerleri o kadar
+#   "yukaric cekilir" ve parlak ısık degerleri o kadar "sikistirilir":
+#
+#     log_dekad=2 → 100:1 baskı orani  (hafif donusum)
+#     log_dekad=3 → 1000:1             (onerilen, goz modeliyle uyumlu)
+#     log_dekad=4 → 10000:1            (guclu baskı, karanlık ortam)
+#     log_dekad=5 → 100000:1           (cok guclu baskı, nadiren gerekli)
+#
+#   TCS34725 sensoru icin tipik aralik: 2-4
+#   Varsayilan: 3.0
 log_dekad=3.0
+
+
+# ============================================================
+# CALISMA MODU
+# ============================================================
+
+# mod — Renk normallesirme yontemi.
+#
+#   STABIL  — Sabit referans maksimuma gore normalize eder (NORM_INPUT_MAX).
+#   Isik kosullari degisse de olcek degismez. Farkli zamanlardaki
+#   olcumleri karsilastirmak icin idealdir.
+#
+#   DINAMIK — Gozlemlenen maksimuma gore otomatik olceklenir.
+#   Karanlik ortamda hassasiyet artar, parlak ortamda tam skala kullanilir.
+#   Mutlak karsilastirma yerine anlik renk farki tespitinde tercih edilir.
+#
+#   Varsayilan: STABIL
 mod=STABIL
+
+# dual_cikti — Her satira hem ham (uint16_t) hem islenmiş (0-100) degeri yaz.
+#   true  → Tek satirda ham sensör ve normalize degerler birlikte gelir.
+#   false → Yalnizca islenmiş (normalize) degerler ciktilanir.
+#   Varsayilan: true
 dual_cikti=true
 
-# --- Log dosyasi (LOGGING_ENABLED=true ise gecerli) ---
+
+# ============================================================
+# LOG DOSYASI (LOGGING_ENABLED=true ise gecerli)
+# ============================================================
+
+# log_file — Kullanici komutlarinin kaydedilecegi dosya yolu.
+#   SD kartta bu yola her komut satirina eklenir.
 log_file=/user_log.csv
