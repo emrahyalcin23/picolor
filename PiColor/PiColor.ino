@@ -4,7 +4,7 @@
  * Copyright (c) 2026 Emrah YALÇIN
  * MIT License — https://opensource.org/licenses/MIT
  * ------------------------------------------------------------
- * VERSİYON : v0.06.05
+ * VERSİYON : v0.06.06
  * TANIM    : SD karttaki config.txt üzerinden runtime yapılandırma
  *            (WiFi AP SSID/şifre, TCP port, log dosyası). SD kart
  *            yoksa veya dosya bulunamazsa config.h'deki DEFAULT_*
@@ -94,7 +94,7 @@
  * ============================================================
  */
 
-#define FIRMWARE_VERSION  "v0.06.05"   // Firmware sürümü
+#define FIRMWARE_VERSION  "v0.06.06"   // Firmware sürümü
 
 #include "config.h"
 
@@ -1968,8 +1968,12 @@ void setupWiFi() {
     if (strlen(wifiStaSSID) > 0)
         WiFi.begin(wifiStaSSID, wifiStaPass);
     // AP: kendi ağını her zaman aç (yapılandırma için)
+    // Varsayılan 192.168.4.1 bazı modem/router'larla çakışıyor — 192.168.42.1 kullan
+    WiFi.softAPConfig(IPAddress(192,168,42,1),
+                      IPAddress(192,168,42,1),
+                      IPAddress(255,255,255,0));
     WiFi.softAP(cfgWifiApSSID, cfgWifiApPass);
-    // AP IP atanana kadar bekle — atlamadan begin() çağrılırsa TCP başlamayabilir
+    // AP IP atanana kadar bekle
     while (WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) delay(10);
 
     tcpServer.begin();
