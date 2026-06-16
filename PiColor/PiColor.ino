@@ -279,6 +279,9 @@ static char     cfgLogFile[64]    = "/user_log.csv";
 static uint16_t cfgTcpPort        = 8266;
 
 #define MAX_TCP_CLIENTS 4
+#define DEFAULT_TCP_PORT 8266
+// Global nesne: arduino-pico'da WiFiServer::begin() güvenilir çalışması için global olmalı
+static WiFiServer  g_tcpServer(DEFAULT_TCP_PORT);
 static WiFiServer* tcpServer      = nullptr;
 static WiFiClient  tcpClients[MAX_TCP_CLIENTS];
 static char        tcpRxBuf[MAX_TCP_CLIENTS][256];
@@ -2000,13 +2003,18 @@ void restartAP() {
 }
 
 void changeTcpPort(uint16_t newPort) {
-    if (tcpServer) {
-        tcpServer->stop();
+    if (tcpServer) tcpServer->stop();
+    // Sadece heap ile oluşturulmuşsa sil; global nesneyi (g_tcpServer) silme
+    if (tcpServer && tcpServer != &g_tcpServer) {
         delete tcpServer;
         tcpServer = nullptr;
     }
     cfgTcpPort = newPort;
-    tcpServer = new WiFiServer(cfgTcpPort);
+    if (cfgTcpPort == DEFAULT_TCP_PORT) {
+        tcpServer = &g_tcpServer;
+    } else {
+        tcpServer = new WiFiServer(cfgTcpPort);
+    }
     tcpServer->begin();
     char meta[48];
     snprintf(meta, sizeof(meta), "TCP_PORT_CHANGED=%d", cfgTcpPort);
@@ -2063,9 +2071,13 @@ void setupWiFi() {
         printStatusMessage(calibMode, "WIFI_STA_CONNECTING");
     }
 
-    // TCP sunucusu: cfgTcpPort portunda tüm arayüzlerde dinler
-    tcpServer = new WiFiServer(cfgTcpPort);
+    // TCP sunucusu — global nesneyle başlat (arduino-pico'da en güvenilir yöntem)
+    tcpServer = &g_tcpServer;
     tcpServer->begin();
+    // JSON'dan farklı port geldiyse runtime değişim uygula
+    if (cfgTcpPort != DEFAULT_TCP_PORT) {
+        changeTcpPort(cfgTcpPort);
+    }
 
     // mDNS: picolor.local → TCP erişimi için
     MDNS.begin("picolor");
