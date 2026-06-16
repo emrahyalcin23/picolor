@@ -2090,10 +2090,7 @@ void clearWiFiCredentials() {
 }
 
 void setupWiFi() {
-    // AP önce başlat — 192.168.4.1 bazı modem/router'larla çakıştığından 192.168.42.1 kullan
-    WiFi.softAPConfig(IPAddress(192,168,42,1),
-                      IPAddress(192,168,42,1),
-                      IPAddress(255,255,255,0));
+    // AP başlat — CYW43 default IP 192.168.4.1 kullanır (softAPConfig arduino-pico 5.6.0'da çalışmıyor)
     WiFi.softAP(cfgWifiApSSID, cfgWifiApPass);
     while (WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) delay(10);
 
