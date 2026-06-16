@@ -24,10 +24,9 @@ wifi_ap_ssid=PiColor
 #   WPA2 ile korunur; en az 8 karakter olmalidir.
 wifi_ap_pass=picolor123
 
-# tcp_port — TCP baglanti portu (varsayilan: 8266).
-#   Istemci yazilimi bu porta baglanir. Diger cihazlarla
-#   catisma olursa degistirin (ornek: 8888).
-tcp_port=8266
+# tcp_port — TCP portu config.h'deki DEFAULT_TCP_PORT ile belirlenir (varsayilan: 8266).
+#   Degistirmek icin config.h dosyasindaki DEFAULT_TCP_PORT degerini guncelleyin.
+#   Bu dosyadan degistirilemez (arduino-pico WiFiServer kisitlamasi).
 
 
 # ============================================================

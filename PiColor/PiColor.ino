@@ -265,13 +265,12 @@ static String currentUsername = "serial";
 // Çalışma zamanı yapılandırması — config.txt'den yüklenir, yoksa DEFAULT_* kullanılır
 static char cfgWifiApSSID[33] = DEFAULT_WIFI_AP_SSID;
 static char cfgWifiApPass[65] = DEFAULT_WIFI_AP_PASS;
-static int  cfgTcpPort        = DEFAULT_TCP_PORT;
 #if LOGGING_ENABLED
 static char cfgLogFile[64]    = DEFAULT_LOG_FILE;
 #endif
 
 #if WIRELESS_ENABLED
-static WiFiServer  tcpServer(0);  // port begin() ile verilir
+static WiFiServer  tcpServer(DEFAULT_TCP_PORT);
 static WiFiClient  tcpClients[MAX_TCP_CLIENTS];
 static char        tcpRxBuf[MAX_TCP_CLIENTS][256];
 static int         tcpRxLen[MAX_TCP_CLIENTS];
@@ -673,9 +672,6 @@ void loadSDConfig() {
             val.toCharArray(cfgWifiApSSID, sizeof(cfgWifiApSSID));
         } else if (key == "wifi_ap_pass") {
             val.toCharArray(cfgWifiApPass, sizeof(cfgWifiApPass));
-        } else if (key == "tcp_port") {
-            int p = val.toInt();
-            if (p > 0 && p <= 65535) cfgTcpPort = p;
         } else if (key == "basamak") {
             int d = val.toInt();
             if (d >= 0 && d <= 6) outputDecimals = d;
@@ -1399,7 +1395,7 @@ void showDurum() {
     snprintf(meta, sizeof(meta), "AP_SSID=%s,AP_IP=%s,TCP_PORT=%d",
              cfgWifiApSSID,
              WiFi.softAPIP().toString().c_str(),
-             cfgTcpPort);
+             DEFAULT_TCP_PORT);
     printStatusMessage(calibMode, meta);
 
     // BLE
@@ -1976,7 +1972,7 @@ void setupWiFi() {
     // AP IP atanana kadar bekle — atlamadan begin() çağrılırsa TCP başlamayabilir
     while (WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) delay(10);
 
-    tcpServer.begin(cfgTcpPort);
+    tcpServer.begin();
 
     // mDNS: picolor.local → TCP erişimi için
     MDNS.begin("picolor");

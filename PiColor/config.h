@@ -23,7 +23,7 @@
 // ============================================================
 #define DEFAULT_WIFI_AP_SSID  "PiColor"
 #define DEFAULT_WIFI_AP_PASS  "picolor123"
-#define DEFAULT_TCP_PORT      8266
+#define DEFAULT_TCP_PORT      8266   // YALNIZCA buradan degistirilebilir (runtime'da degil)
 #define DEFAULT_LOG_FILE      "/user_log.csv"
 
 // ============================================================
