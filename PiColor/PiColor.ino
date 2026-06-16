@@ -92,28 +92,9 @@
  * ============================================================
  */
 
-// ============================================================
-// ÖZELLIK ANAHTARLARI
-// ============================================================
-
 #define FIRMWARE_VERSION  "v0.06.03"   // Firmware sürümü
-#define WIRELESS_ENABLED  true   // WiFi+BLE aktif/pasif — default: aktif
-#define LOGGING_ENABLED   false  // Kullanıcı logu aktif/pasif — default: pasif
-                                 // SD kart takılı   → komutlar /user_log.csv'ye kaydedilir
-                                 // SD kart takılı değil → loglama otomatik devre dışı (flash yazılmaz)
 
-// === WIRELESS CONFIG (WIRELESS_ENABLED=true ise geçerli) ===
-#if WIRELESS_ENABLED
-#define WIFI_AP_SSID    "PiColor"
-#define WIFI_AP_PASS    "picolor123"
-#define TCP_PORT        8266
-#define MAX_TCP_CLIENTS 4
-#endif
-
-// === LOG CONFIG (LOGGING_ENABLED=true ise geçerli) ===
-#if LOGGING_ENABLED
-#define LOG_FILE        "/user_log.csv"
-#endif
+#include "config.h"
 
 // ============================================================
 // KÜTÜPHANELER
@@ -276,8 +257,16 @@ const char* CSV_FILENAME     = "/picolor_data.csv"; // Ana kayıt dosyası
 // Mevcut komutu gönderen kullanıcı (Serial/TCP/BLE handler tarafından set edilir)
 static String currentUsername = "serial";
 
+// Çalışma zamanı yapılandırması — config.txt'den yüklenir, yoksa DEFAULT_* kullanılır
+static char cfgWifiApSSID[33] = DEFAULT_WIFI_AP_SSID;
+static char cfgWifiApPass[65] = DEFAULT_WIFI_AP_PASS;
+static int  cfgTcpPort        = DEFAULT_TCP_PORT;
+#if LOGGING_ENABLED
+static char cfgLogFile[64]    = DEFAULT_LOG_FILE;
+#endif
+
 #if WIRELESS_ENABLED
-static WiFiServer  tcpServer(TCP_PORT);
+static WiFiServer* tcpServer  = nullptr;
 static WiFiClient  tcpClients[MAX_TCP_CLIENTS];
 static char        tcpRxBuf[MAX_TCP_CLIENTS][256];
 static int         tcpRxLen[MAX_TCP_CLIENTS];
@@ -633,6 +622,55 @@ void initSDCard() {
             printStatusMessage(calibMode, "SD_CSV_HEADER_WRITTEN");
         }
     }
+}
+
+/*
+ * loadSDConfig
+ * ------------
+ * SD karttaki /config.txt dosyasını okur ve çalışma zamanı
+ * yapılandırma değişkenlerini (cfgWifiApSSID vb.) günceller.
+ * Dosya yoksa veya SD kart takılı değilse varsayılan değerler
+ * (DEFAULT_* sabitleri) kullanılmaya devam eder.
+ * initSDCard()'dan sonra, setupWiFi()'dan önce çağrılmalıdır.
+ */
+void loadSDConfig() {
+    if (!sdCardAvailable || !sdCardMounted) return;
+
+    File f = SD.open("/config.txt", FILE_READ);
+    if (!f) {
+        printStatusMessage(calibMode, "CFG_NOT_FOUND_USING_DEFAULTS");
+        return;
+    }
+
+    while (f.available()) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0 || line.startsWith("#")) continue;
+
+        int sep = line.indexOf('=');
+        if (sep < 1) continue;
+
+        String key = line.substring(0, sep);
+        String val = line.substring(sep + 1);
+        key.trim();
+        val.trim();
+
+        if (key == "wifi_ap_ssid") {
+            val.toCharArray(cfgWifiApSSID, sizeof(cfgWifiApSSID));
+        } else if (key == "wifi_ap_pass") {
+            val.toCharArray(cfgWifiApPass, sizeof(cfgWifiApPass));
+        } else if (key == "tcp_port") {
+            int p = val.toInt();
+            if (p > 0 && p <= 65535) cfgTcpPort = p;
+        }
+#if LOGGING_ENABLED
+        else if (key == "log_file") {
+            val.toCharArray(cfgLogFile, sizeof(cfgLogFile));
+        }
+#endif
+    }
+    f.close();
+    printStatusMessage(calibMode, "CFG_LOADED_FROM_SD");
 }
 
 /*
@@ -1851,9 +1889,9 @@ void reconnectWiFiSTA() {
 void showWiFiBilgi() {
     char meta[80];
     if (strlen(wifiStaSSID) > 0) {
-        snprintf(meta, sizeof(meta), "STA_SSID=%s,STA_PASS=***,AP=%s", wifiStaSSID, WIFI_AP_SSID);
+        snprintf(meta, sizeof(meta), "STA_SSID=%s,STA_PASS=***,AP=%s", wifiStaSSID, cfgWifiApSSID);
     } else {
-        snprintf(meta, sizeof(meta), "STA_SSID=<not_set>,AP=%s", WIFI_AP_SSID);
+        snprintf(meta, sizeof(meta), "STA_SSID=<not_set>,AP=%s", cfgWifiApSSID);
     }
     printStatusMessage(calibMode, meta);
 }
@@ -1871,9 +1909,10 @@ void setupWiFi() {
     if (strlen(wifiStaSSID) > 0)
         WiFi.begin(wifiStaSSID, wifiStaPass);
     // AP: kendi ağını her zaman aç (yapılandırma için)
-    WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS);
+    WiFi.softAP(cfgWifiApSSID, cfgWifiApPass);
 
-    tcpServer.begin();
+    tcpServer = new WiFiServer(cfgTcpPort);
+    tcpServer->begin();
 
     // mDNS: picolor.local → TCP erişimi için
     MDNS.begin("picolor");
@@ -1959,7 +1998,7 @@ void bleSendLine(const String& line) {
 
 void handleTCPClients() {
     // Yeni bağlantı kabul et
-    WiFiClient newClient = tcpServer.accept();
+    WiFiClient newClient = tcpServer->accept();
     if (newClient) {
         bool accepted = false;
         for (int i = 0; i < MAX_TCP_CLIENTS; i++) {
@@ -2016,7 +2055,7 @@ void handleBLEClients() {
 #if LOGGING_ENABLED
 void appendUserLog(const String& username, const char* clientType, const String& command) {
     if (!sdCardAvailable || !sdCardMounted) return;
-    File f = SD.open(LOG_FILE, FILE_WRITE);
+    File f = SD.open(cfgLogFile, FILE_WRITE);
     if (!f) return;
     f.printf("%lu,%s,%s,%s\n", millis(),
              username.c_str(), clientType, command.c_str());
@@ -2062,6 +2101,7 @@ void setup() {
 
     // SD kart
     initSDCard();
+    loadSDConfig();
 
 #if WIRELESS_ENABLED
     EEPROM.begin(EEPROM_SIZE);

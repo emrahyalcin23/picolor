@@ -1,0 +1,21 @@
+# PiColor Kullanici Yapilandirmasi
+# ============================================================
+# Bu dosyayi SD karta kopyalayin. Cihaz her acildiginda bu
+# dosyayi okur; dosya bulunamazsa varsayilan degerler kullanilir.
+# Degisiklikler cihaz yeniden baslatildiginda aktif olur.
+#
+# Kurallar:
+#   - Yorum satirlari # ile baslar
+#   - Bos satirlar gozardi edilir
+#   - Format: anahtar=deger (bosluk olmamali)
+# ============================================================
+
+# WiFi Erisim Noktasi (AP) ayarlari
+wifi_ap_ssid=PiColor
+wifi_ap_pass=picolor123
+
+# TCP sunucu portu (varsayilan: 8266)
+tcp_port=8266
+
+# Kullanici log dosyasi (LOGGING_ENABLED=true ise gecerli)
+log_file=/user_log.csv
