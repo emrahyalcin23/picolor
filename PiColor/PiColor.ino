@@ -4,10 +4,11 @@
  * Copyright (c) 2026 Emrah YALÇIN
  * MIT License — https://opensource.org/licenses/MIT
  * ------------------------------------------------------------
- * VERSİYON : v0.06.03
- * TANIM    : D5 üzerine kablosuz iletişim katmanı (WiFi AP+STA,
- *            TCP port 8266, BLE NUS). Mevcut Serial protokolü
- *            birebir korunur; WIRELESS_ENABLED=false → d5 davranışı.
+ * VERSİYON : v0.06.04
+ * TANIM    : SD karttaki config.txt üzerinden runtime yapılandırma
+ *            (WiFi AP SSID/şifre, TCP port, log dosyası). SD kart
+ *            yoksa veya dosya bulunamazsa config.h'deki DEFAULT_*
+ *            sabitleri kullanılır. Önceki tüm özellikler korunur.
  * ============================================================
  *
  * DONANIM
@@ -92,7 +93,7 @@
  * ============================================================
  */
 
-#define FIRMWARE_VERSION  "v0.06.03"   // Firmware sürümü
+#define FIRMWARE_VERSION  "v0.06.04"   // Firmware sürümü
 
 #include "config.h"
 
@@ -634,7 +635,10 @@ void initSDCard() {
  * initSDCard()'dan sonra, setupWiFi()'dan önce çağrılmalıdır.
  */
 void loadSDConfig() {
-    if (!sdCardAvailable || !sdCardMounted) return;
+    if (!sdCardAvailable || !sdCardMounted) {
+        printStatusMessage(calibMode, "CFG_NO_SD_USING_DEFAULTS");
+        return;
+    }
 
     File f = SD.open("/config.txt", FILE_READ);
     if (!f) {
