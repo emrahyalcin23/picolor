@@ -133,6 +133,8 @@ extern "C" {
 // ============================================================
 #define DEFAULT_WIFI_AP_SSID    "PiColor"        // AP ağ adı
 #define DEFAULT_WIFI_AP_PASS    "picolor123"      // AP şifresi (min 8 karakter)
+#define DEFAULT_WIFI_STA_SSID   ""               // ev modemi ağ adı (boş = bağlanma)
+#define DEFAULT_WIFI_STA_PASS   ""               // ev modemi şifresi
 #define DEFAULT_WIFI_STA_AUTO   true              // ev modemine otomatik bağlan
 #define DEFAULT_TCP_PORT        8266              // TCP sunucu portu
 #define DEFAULT_BASAMAK         1                 // ondalık basamak sayısı
@@ -329,8 +331,8 @@ static String blePendingUser;
 #define EEPROM_PASS_OFFSET 34
 #define EEPROM_PASS_LEN    65   // 64 karakter + null
 
-static char wifiStaSSID[EEPROM_SSID_LEN];
-static char wifiStaPass[EEPROM_PASS_LEN];
+static char wifiStaSSID[EEPROM_SSID_LEN] = DEFAULT_WIFI_STA_SSID;
+static char wifiStaPass[EEPROM_PASS_LEN] = DEFAULT_WIFI_STA_PASS;
 
 // ============================================================
 // ÇIKTI TİPİ ENUM
