@@ -104,7 +104,7 @@
  * ============================================================
  */
 
-#define FIRMWARE_VERSION  "v0.09.00"   // Firmware sürümü
+#define FIRMWARE_VERSION  "v0.09.03"   // Firmware sürümü
 
 #include <ArduinoJson.h>
 
@@ -126,6 +126,7 @@ extern "C" {
 #include "ble/att_server.h"
 }
 #include <EEPROM.h>
+#include <LittleFS.h>
 
 // ============================================================
 // PIN TANIMLAMALARI
@@ -277,6 +278,7 @@ static bool     cfgWifiStaAuto    = true;
 static bool     loggingEnabled    = false;
 static char     cfgLogFile[64]    = "/user_log.csv";
 static uint16_t cfgTcpPort        = 8266;
+static bool     wifiEnabled       = true;   // WIRELESS_ENABLED=0/1 komutuyla oturum bazlı değişir
 
 #define MAX_TCP_CLIENTS 4
 #define DEFAULT_TCP_PORT 8266
@@ -645,21 +647,33 @@ void initSDCard() {
  * Dosya yoksa veya SD kart takılı değilse varsayılan değerler korunur.
  */
 void loadJsonConfig() {
-    if (!sdCardAvailable || !sdCardMounted) {
-        printStatusMessage(calibMode, "CFG_NO_SD_USING_DEFAULTS");
-        return;
+    // Öncelik: SD kart → Pico internal flash (LittleFS) → hardcoded default
+    File f;
+    const char* source = nullptr;
+
+    if (sdCardAvailable && sdCardMounted) {
+        f = SD.open("/config.json", FILE_READ);
+        if (f) source = "SD";
     }
-    File f = SD.open("/config.json", FILE_READ);
+
+    if (!f) {
+        if (LittleFS.begin()) {
+            f = LittleFS.open("/config.json", "r");
+            if (f) source = "LFS";
+        }
+    }
+
     if (!f) {
         printStatusMessage(calibMode, "CFG_NOT_FOUND_USING_DEFAULTS");
         return;
     }
+
     JsonDocument doc;
     DeserializationError err = deserializeJson(doc, f);
     f.close();
     if (err) {
         char meta[48];
-        snprintf(meta, sizeof(meta), "CFG_JSON_ERROR=%s", err.c_str());
+        snprintf(meta, sizeof(meta), "CFG_JSON_ERROR=%s,SRC=%s", err.c_str(), source);
         printStatusMessage(calibMode, meta);
         return;
     }
@@ -689,7 +703,9 @@ void loadJsonConfig() {
     loggingEnabled   = doc["logging_enabled"] | loggingEnabled;
     strlcpy(cfgLogFile, doc["log_file"] | cfgLogFile, sizeof(cfgLogFile));
 
-    printStatusMessage(calibMode, "CFG_LOADED_FROM_JSON");
+    char msg[32];
+    snprintf(msg, sizeof(msg), "CFG_LOADED_FROM_%s", source);
+    printStatusMessage(calibMode, msg);
 }
 
 /*
@@ -1471,6 +1487,14 @@ void processCommandLine(String line, const String& username, const char* clientT
             currentUsername = "serial";
             return;
         }
+        if (upper.startsWith("WIRELESS_ENABLED=")) {
+            String val = upper.substring(17);
+            val.trim();
+            if (val == "0" || val == "FALSE" || val == "OFF") disableWiFi();
+            else if (val == "1" || val == "TRUE" || val == "ON") enableWiFi();
+            currentUsername = "serial";
+            return;
+        }
     }
 
     line.toUpperCase();
@@ -2079,8 +2103,9 @@ void setupWiFi() {
         changeTcpPort(cfgTcpPort);
     }
 
-    // mDNS: picolor.local → TCP erişimi için
-    MDNS.begin("picolor");
+    // mDNS: picolor.local → TCP erişimi için (çift çağrıya karşı korunmalı)
+    static bool mdnsStarted = false;
+    if (!mdnsStarted) { MDNS.begin("picolor"); mdnsStarted = true; }
 
     // tcpRxLen dizisini sıfırla
     for (int i = 0; i < MAX_TCP_CLIENTS; i++) tcpRxLen[i] = 0;
@@ -2089,6 +2114,23 @@ void setupWiFi() {
     snprintf(apMeta, sizeof(apMeta), "WIFI_AP_STARTED,IP=%s,PORT=%d",
              WiFi.softAPIP().toString().c_str(), cfgTcpPort);
     printStatusMessage(calibMode, apMeta);
+}
+
+void disableWiFi() {
+    for (int i = 0; i < MAX_TCP_CLIENTS; i++) {
+        if (tcpClients[i]) tcpClients[i].stop();
+    }
+    if (tcpServer) tcpServer->stop();
+    WiFi.disconnect();
+    WiFi.softAPdisconnect(true);
+    wifiEnabled = false;
+    printStatusMessage(calibMode, "WIFI_DISABLED");
+}
+
+void enableWiFi() {
+    wifiEnabled = true;
+    setupWiFi();
+    printStatusMessage(calibMode, "WIFI_ENABLED");
 }
 
 // --- BTstack BLE callbacks ---
@@ -2168,7 +2210,7 @@ void bleSendLine(const String& line) {
 
 void handleWiFiReconnect(unsigned long currentMillis) {
     static unsigned long lastSTACheck = 0;
-    if (!cfgWifiStaAuto || strlen(wifiStaSSID) == 0) return;
+    if (!wifiEnabled || !cfgWifiStaAuto || strlen(wifiStaSSID) == 0) return;
     if (currentMillis - lastSTACheck < 30000UL) return;
     lastSTACheck = currentMillis;
     if (WiFi.status() != WL_CONNECTED)
@@ -2176,7 +2218,7 @@ void handleWiFiReconnect(unsigned long currentMillis) {
 }
 
 void handleTCPClients() {
-    if (!tcpServer) return;
+    if (!wifiEnabled || !tcpServer) return;
     WiFiClient newClient = tcpServer->accept();
     if (newClient) {
         bool accepted = false;
