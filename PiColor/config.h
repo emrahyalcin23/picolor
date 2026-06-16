@@ -21,10 +21,11 @@
 // ============================================================
 // VARSAYILAN DEĞERLER — config.txt yoksa bu değerler kullanılır
 // ============================================================
-#define DEFAULT_WIFI_AP_SSID  "PiColor"
-#define DEFAULT_WIFI_AP_PASS  "picolor123"
-#define DEFAULT_TCP_PORT      8266   // YALNIZCA buradan degistirilebilir (runtime'da degil)
-#define DEFAULT_LOG_FILE      "/user_log.csv"
+#define DEFAULT_WIFI_AP_SSID      "PiColor"
+#define DEFAULT_WIFI_AP_PASS      "picolor123"
+#define DEFAULT_WIFI_STA_AUTO     true   // Kayıtlı STA bilgisi varsa açılışta otomatik bağlan
+#define DEFAULT_TCP_PORT          8266   // YALNIZCA buradan degistirilebilir (runtime'da degil)
+#define DEFAULT_LOG_FILE          "/user_log.csv"
 
 // ============================================================
 // !! EEPROM / FLASH YAZMA LİMİTİ UYARISI !!
@@ -34,9 +35,8 @@
 // sık sık yazmaktan kaçının.
 //
 // EEPROM bu projede YALNIZCA WiFi STA kimlik bilgilerini
-// (WIFI_SSID= / WIFI_PASS= komutları) kalıcı saklamak için
-// kullanılmaktadır — ve yalnızca kullanıcı bu komutları
-// verdiğinde yazılır (önyükleme başına değil).
+// (WIFI_STA_KAYDET komutu) kalıcı saklamak için kullanılmaktadır
+// — ve yalnızca kullanıcı bu komutu verdiğinde yazılır (önyükleme başına değil).
 //
 // Çalışma zamanı yapılandırması (SSID, şifre, port vb.)
 // SD karttaki config.txt üzerinden yönetilmeli; EEPROM'a

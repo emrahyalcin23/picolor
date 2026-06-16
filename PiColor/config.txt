@@ -53,6 +53,12 @@ wifi_ap_pass=picolor123
 # Not: wifi_sta_ssid bos birakilirsa bu blok gozardi edilir;
 #   EEPROM'daki kayit (varsa) kullanilmaya devam eder.
 
+# wifi_sta_otomatik — Acilista kayitli STA bilgisiyle otomatik baglan.
+#   true  → Kayitli bilgi (config veya EEPROM) varsa acilista baglanir.
+#   false → Yalnizca WIFI_STA_BAGLAN komutuyla baglanir.
+#   Varsayilan: true
+wifi_sta_otomatik=true
+
 # wifi_sta_ssid — Ev/ofis Wi-Fi aginin adi. Bos birakin = STA pasif.
 wifi_sta_ssid=
 

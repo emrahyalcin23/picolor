@@ -4,7 +4,7 @@
  * Copyright (c) 2026 Emrah YALÇIN
  * MIT License — https://opensource.org/licenses/MIT
  * ------------------------------------------------------------
- * VERSİYON : v0.08.00
+ * VERSİYON : v0.08.01
  * TANIM    : AP+STA çift mod WiFi — cihaz hem ev ağına (STA) bağlanır
  *            hem kendi AP ağını (192.168.42.1) açar. STA kimlik bilgileri
  *            EEPROM'da saklanır; TCP sunucusu her iki arabirimde (AP+STA)
@@ -104,7 +104,7 @@
  * ============================================================
  */
 
-#define FIRMWARE_VERSION  "v0.08.00"   // Firmware sürümü
+#define FIRMWARE_VERSION  "v0.08.01"   // Firmware sürümü
 
 #include "config.h"
 
@@ -273,8 +273,9 @@ const char* CSV_FILENAME     = "/picolor_data.csv"; // Ana kayıt dosyası
 static String currentUsername = "serial";
 
 // Çalışma zamanı yapılandırması — config.txt'den yüklenir, yoksa DEFAULT_* kullanılır
-static char cfgWifiApSSID[33] = DEFAULT_WIFI_AP_SSID;
-static char cfgWifiApPass[65] = DEFAULT_WIFI_AP_PASS;
+static char cfgWifiApSSID[33]  = DEFAULT_WIFI_AP_SSID;
+static char cfgWifiApPass[65]  = DEFAULT_WIFI_AP_PASS;
+static bool cfgWifiStaAuto     = DEFAULT_WIFI_STA_AUTO;
 #if LOGGING_ENABLED
 static char cfgLogFile[64]    = DEFAULT_LOG_FILE;
 #endif
@@ -701,6 +702,8 @@ void loadSDConfig() {
         } else if (key == "mod") {
             if (val == "DINAMIK") calibMode = 1;
             else                  calibMode = 0;
+        } else if (key == "wifi_sta_otomatik") {
+            cfgWifiStaAuto = (val == "true" || val == "1");
         } else if (key == "dual_cikti") {
             dualOutputActive = (val == "true" || val == "1");
         }
@@ -2072,8 +2075,8 @@ void setupWiFi() {
     WiFi.softAP(cfgWifiApSSID, cfgWifiApPass);
     while (WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) delay(10);
 
-    // STA: ev ağına non-blocking bağlantı — config.txt veya WIFI_STA_SSID= ile belirlenir
-    if (strlen(wifiStaSSID) > 0) {
+    // STA: otomatik bağlantı — cfgWifiStaAuto=true ve kimlik bilgisi mevcutsa
+    if (cfgWifiStaAuto && strlen(wifiStaSSID) > 0) {
         WiFi.begin(wifiStaSSID, wifiStaPass);
         printStatusMessage(calibMode, "WIFI_STA_CONNECTING");
     }
@@ -2170,7 +2173,7 @@ void bleSendLine(const String& line) {
 
 void handleWiFiReconnect(unsigned long currentMillis) {
     static unsigned long lastSTACheck = 0;
-    if (strlen(wifiStaSSID) == 0) return;
+    if (!cfgWifiStaAuto || strlen(wifiStaSSID) == 0) return;
     if (currentMillis - lastSTACheck < 30000UL) return;
     lastSTACheck = currentMillis;
     if (WiFi.status() != WL_CONNECTED)
