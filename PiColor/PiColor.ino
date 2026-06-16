@@ -2073,10 +2073,19 @@ void handleTCPClients() {
                 tcpClients[i] = newClient;
                 tcpRxLen[i]   = 0;
                 accepted = true;
+                // Bağlanan istemciye hoş geldin bildirimi
+                String welcome = String(millis()) + ";4;" + String(calibMode)
+                               + ";0;0;0;TCP_CONNECTED=PICOLOR_" FIRMWARE_VERSION;
+                tcpClients[i].println(welcome);
+                // Serial ve diğer kanallara bildir
+                printStatusMessage(calibMode, "TCP_CLIENT_CONNECTED");
                 break;
             }
         }
-        if (!accepted) newClient.stop(); // doluysa reddet
+        if (!accepted) {
+            newClient.stop(); // doluysa reddet
+            printStatusMessage(calibMode, "TCP_CLIENT_REJECTED_FULL");
+        }
     }
 
     // Bağlı istemcilerden gelen veriyi işle
