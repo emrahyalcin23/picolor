@@ -39,6 +39,7 @@
  *  WIFI_SIFIRLA                Kayıtlı WiFi bilgilerini sil
  *
  *  KIMSIN                      kimlik
+ *  VERSIYON / VERSION          firmware sürümünü göster
  *  MOD                         mevcut modu göster
  *  MOD_STABIL / MOD_DINAMIK    global modu değiştir
  *  KATSAYILAR / COEFF          wR wG wB wL değerlerini göster
@@ -95,6 +96,7 @@
 // ÖZELLIK ANAHTARLARI
 // ============================================================
 
+#define FIRMWARE_VERSION  "d6"   // Firmware sürümü
 #define WIRELESS_ENABLED  true   // WiFi+BLE aktif/pasif — default: aktif
 #define LOGGING_ENABLED   false  // Kullanıcı logu aktif/pasif — default: pasif
                                  // SD kart takılı   → komutlar /user_log.csv'ye kaydedilir
@@ -1257,6 +1259,7 @@ void showHelp() {
 
     Serial.println("\n=== PICOLOR KOMUTLARI ===");
     Serial.println("KIMSIN                   kimlik");
+    Serial.println("VERSIYON / VERSION       firmware surumu");
     Serial.println("MOD                      mevcut modu goster");
     Serial.println("MOD_STABIL               stabil moda gec (kalici)");
     Serial.println("MOD_DINAMIK              dinamik moda gec (kalici)");
@@ -1399,7 +1402,10 @@ void processCommand(String cmd) {
     // TEMEL KOMUTLAR
     // ====================================================
     if (cmd == "KIMSIN") {
-        printStatusMessage(calibMode, "IDENTITY=PICOLOR_D5");
+        printStatusMessage(calibMode, "IDENTITY=PICOLOR_" FIRMWARE_VERSION);
+    }
+    else if (cmd == "VERSIYON" || cmd == "VERSION") {
+        printStatusMessage(calibMode, "VERSION=" FIRMWARE_VERSION);
     }
     else if (cmd == "MOD") {
         showCurrentMode();
