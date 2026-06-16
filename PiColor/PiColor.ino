@@ -4,7 +4,7 @@
  * Copyright (c) 2026 Emrah YALÇIN
  * MIT License — https://opensource.org/licenses/MIT
  * ------------------------------------------------------------
- * VERSİYON : v0.07.01
+ * VERSİYON : v0.08.00
  * TANIM    : AP+STA çift mod WiFi — cihaz hem ev ağına (STA) bağlanır
  *            hem kendi AP ağını (192.168.42.1) açar. STA kimlik bilgileri
  *            EEPROM'da saklanır; TCP sunucusu her iki arabirimde (AP+STA)
@@ -34,11 +34,20 @@
  *
  * KOMUT LİSTESİ (YARDIM / HELP)
  * ------------------------------
- *  WIFI_SSID=<ag_adi>           WiFi ağ adını ayarla ve flash'a kaydet
- *  WIFI_PASS=<sifre>           WiFi şifresini ayarla ve flash'a kaydet
- *  WIFI_BAGLAN                 Kayıtlı kimlik bilgileriyle STA yeniden bağlan
- *  WIFI_BILGI                  Mevcut WiFi ayarlarını göster (şifre gizli)
- *  WIFI_SIFIRLA                Kayıtlı WiFi bilgilerini sil
+ *  --- WiFi AP (modülün kendi ağı) ---
+ *  WIFI_AP_SSID=<adi>          AP ağ adını RAM'e yaz (yalnızca bu oturum)
+ *  WIFI_AP_PASS=<sifre>        AP şifresini RAM'e yaz (yalnızca bu oturum)
+ *  WIFI_AP_YENILE              AP'yi mevcut RAM bilgileriyle yeniden başlat
+ *
+ *  --- WiFi STA (ev/ofis modemi) ---
+ *  WIFI_STA_SSID=<ag_adi>      Modem ağ adını RAM'e yaz (yalnızca bu oturum)
+ *  WIFI_STA_PASS=<sifre>       Modem şifresini RAM'e yaz (yalnızca bu oturum)
+ *  WIFI_STA_BAGLAN             Mevcut RAM bilgileriyle modeme bağlan
+ *  WIFI_STA_KES                Modem bağlantısını kes (AP etkilenmez)
+ *  WIFI_STA_KAYDET             Mevcut STA bilgilerini EEPROM'a kaydet (SD kartsız cihazlar için)
+ *  WIFI_STA_SIFIRLA            EEPROM'daki STA bilgilerini sil
+ *
+ *  WIFI_BILGI                  AP ve STA durumunu göster
  *
  *  KIMSIN                      kimlik
  *  VERSIYON / VERSION          firmware sürümünü göster
@@ -95,7 +104,7 @@
  * ============================================================
  */
 
-#define FIRMWARE_VERSION  "v0.07.01"   // Firmware sürümü
+#define FIRMWARE_VERSION  "v0.08.00"   // Firmware sürümü
 
 #include "config.h"
 
@@ -289,7 +298,7 @@ static String blePendingUser;
 
 // !! EEPROM / FLASH YAZMA LİMİTİ UYARISI !!
 // RP2040 flash belleği yaklaşık 100.000 blok silme döngüsüne sahiptir.
-// EEPROM yalnızca WIFI_SSID= / WIFI_PASS= komutlarında yazılır;
+// EEPROM yalnızca WIFI_STA_KAYDET komutuyla yazılır (kullanıcı talebi üzerine);
 // önyükleme başına veya döngüsel olarak ASLA yazılmamalıdır.
 // Çalışma zamanı ayarları için SD karttaki config.txt kullanılır.
 
@@ -1372,12 +1381,18 @@ void showHelp() {
     Serial.println("");
     Serial.println("YARDIM / HELP            bu ekran");
     Serial.println("");
-    Serial.println("--- WIFI YAPILANDIRMA ---");
-    Serial.println("WIFI_SSID=<ag_adi>       WiFi ag adini ayarla ve kaydet");
-    Serial.println("WIFI_PASS=<sifre>        WiFi sifresini ayarla ve kaydet");
-    Serial.println("WIFI_BAGLAN              Kayitli bilgilerle yeniden baglan");
-    Serial.println("WIFI_BILGI               Mevcut WiFi ayarlarini goster");
-    Serial.println("WIFI_SIFIRLA             Kayitli WiFi bilgilerini sil");
+    Serial.println("--- WIFI AP (modulun kendi agi) ---");
+    Serial.println("WIFI_AP_SSID=<adi>       AP ag adini RAM'e yaz (bu oturum)");
+    Serial.println("WIFI_AP_PASS=<sifre>     AP sifresini RAM'e yaz (bu oturum)");
+    Serial.println("WIFI_AP_YENILE           AP'yi yeni bilgilerle yeniden baslat");
+    Serial.println("--- WIFI STA (ev/ofis modemi) ---");
+    Serial.println("WIFI_STA_SSID=<ag_adi>   Modem ag adini RAM'e yaz (bu oturum)");
+    Serial.println("WIFI_STA_PASS=<sifre>    Modem sifresini RAM'e yaz (bu oturum)");
+    Serial.println("WIFI_STA_BAGLAN          Mevcut RAM bilgileriyle modeme baglan");
+    Serial.println("WIFI_STA_KES             Modem baglantisini kes (AP etkilenmez)");
+    Serial.println("WIFI_STA_KAYDET          STA bilgilerini EEPROM'a kaydet (SD yok ise)");
+    Serial.println("WIFI_STA_SIFIRLA         EEPROM'daki STA bilgilerini sil");
+    Serial.println("WIFI_BILGI               AP ve STA durumunu goster");
     Serial.println("========================\n");
 }
 
@@ -1446,23 +1461,34 @@ void processCommandLine(String line, const String& username, const char* clientT
         String logLine = line;
         String logUpper = line;
         logUpper.toUpperCase();
-        if (logUpper.startsWith("WIFI_PASS=")) logLine = "WIFI_PASS=***";
+        if (logUpper.startsWith("WIFI_STA_PASS=")) logLine = "WIFI_STA_PASS=***";
+        if (logUpper.startsWith("WIFI_AP_PASS="))  logLine = "WIFI_AP_PASS=***";
         appendUserLog(username, clientType, logLine);
     }
 #endif
 
 #if WIRELESS_ENABLED
-    // WIFI_SSID= ve WIFI_PASS= — değer case-sensitive olduğu için toUpperCase'den önce işle
+    // SSID/şifre değerleri case-sensitive — toUpperCase'den önce işle
     {
         String upper = line;
         upper.toUpperCase();
-        if (upper.startsWith("WIFI_SSID=")) {
-            setWiFiSSID(line.substring(10));
+        if (upper.startsWith("WIFI_AP_SSID=")) {
+            setWiFiApSSID(line.substring(13));
             currentUsername = "serial";
             return;
         }
-        if (upper.startsWith("WIFI_PASS=")) {
-            setWiFiPass(line.substring(10));
+        if (upper.startsWith("WIFI_AP_PASS=")) {
+            setWiFiApPass(line.substring(13));
+            currentUsername = "serial";
+            return;
+        }
+        if (upper.startsWith("WIFI_STA_SSID=")) {
+            setWiFiStaSSID(line.substring(14));
+            currentUsername = "serial";
+            return;
+        }
+        if (upper.startsWith("WIFI_STA_PASS=")) {
+            setWiFiStaPass(line.substring(14));
             currentUsername = "serial";
             return;
         }
@@ -1720,16 +1746,35 @@ void processCommand(String cmd) {
 
 #if WIRELESS_ENABLED
     // ====================================================
-    // WiFi YAPILANDIRMA
+    // WiFi AP — modülün kendi ağı
+    // ====================================================
+    else if (cmd == "WIFI_AP_YENILE") {
+        restartAP();
+    }
+
+    // ====================================================
+    // WiFi STA — ev/ofis modemi
+    // ====================================================
+    else if (cmd == "WIFI_STA_BAGLAN") {
+        reconnectWiFiSTA();
+    }
+    else if (cmd == "WIFI_STA_KES") {
+        WiFi.disconnect();
+        printStatusMessage(calibMode, "STA_DISCONNECTED");
+    }
+    else if (cmd == "WIFI_STA_KAYDET") {
+        saveWiFiCredentials();
+        printStatusMessage(calibMode, "STA_SAVED_TO_EEPROM");
+    }
+    else if (cmd == "WIFI_STA_SIFIRLA") {
+        clearWiFiCredentials();
+    }
+
+    // ====================================================
+    // WiFi GENEL
     // ====================================================
     else if (cmd == "WIFI_BILGI") {
         showWiFiBilgi();
-    }
-    else if (cmd == "WIFI_BAGLAN") {
-        reconnectWiFiSTA();
-    }
-    else if (cmd == "WIFI_SIFIRLA") {
-        clearWiFiCredentials();
     }
 #endif
 
@@ -1939,20 +1984,48 @@ void saveWiFiCredentials() {
     EEPROM.commit();
 }
 
-void setWiFiSSID(const String& ssid) {
+// --- STA kimlik bilgileri: yalnızca RAM (bu oturum) ---
+// Kalıcı kayıt için: config.txt (SD kart) veya WIFI_STA_KAYDET (EEPROM)
+
+void setWiFiStaSSID(const String& ssid) {
     strncpy(wifiStaSSID, ssid.c_str(), EEPROM_SSID_LEN - 1);
     wifiStaSSID[EEPROM_SSID_LEN - 1] = '\0';
-    saveWiFiCredentials();
     char meta[48];
-    snprintf(meta, sizeof(meta), "WIFI_SSID_SAVED=%s", wifiStaSSID);
+    snprintf(meta, sizeof(meta), "STA_SSID=%s,KAYNAK=RAM", wifiStaSSID);
     printStatusMessage(calibMode, meta);
 }
 
-void setWiFiPass(const String& pass) {
+void setWiFiStaPass(const String& pass) {
     strncpy(wifiStaPass, pass.c_str(), EEPROM_PASS_LEN - 1);
     wifiStaPass[EEPROM_PASS_LEN - 1] = '\0';
-    saveWiFiCredentials();
-    printStatusMessage(calibMode, "WIFI_PASS_SAVED");
+    printStatusMessage(calibMode, "STA_PASS=RAM");
+}
+
+// --- AP kimlik bilgileri: yalnızca RAM (bu oturum) ---
+// Kalıcı kayıt için: config.txt (SD kart)
+
+void setWiFiApSSID(const String& ssid) {
+    ssid.toCharArray(cfgWifiApSSID, sizeof(cfgWifiApSSID));
+    char meta[48];
+    snprintf(meta, sizeof(meta), "AP_SSID=%s,KAYNAK=RAM", cfgWifiApSSID);
+    printStatusMessage(calibMode, meta);
+}
+
+void setWiFiApPass(const String& pass) {
+    pass.toCharArray(cfgWifiApPass, sizeof(cfgWifiApPass));
+    printStatusMessage(calibMode, "AP_PASS=RAM");
+}
+
+void restartAP() {
+    WiFi.softAPConfig(IPAddress(192,168,42,1),
+                      IPAddress(192,168,42,1),
+                      IPAddress(255,255,255,0));
+    WiFi.softAP(cfgWifiApSSID, cfgWifiApPass);
+    while (WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) delay(10);
+    char meta[80];
+    snprintf(meta, sizeof(meta), "AP_RESTARTED,SSID=%s,IP=%s,PORT=%d",
+             cfgWifiApSSID, WiFi.softAPIP().toString().c_str(), DEFAULT_TCP_PORT);
+    printStatusMessage(calibMode, meta);
 }
 
 void reconnectWiFiSTA() {
@@ -1999,7 +2072,7 @@ void setupWiFi() {
     WiFi.softAP(cfgWifiApSSID, cfgWifiApPass);
     while (WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) delay(10);
 
-    // STA: ev ağına non-blocking bağlantı — WIFI_SSID= ile kaydedilmiş kimlik gerekli
+    // STA: ev ağına non-blocking bağlantı — config.txt veya WIFI_STA_SSID= ile belirlenir
     if (strlen(wifiStaSSID) > 0) {
         WiFi.begin(wifiStaSSID, wifiStaPass);
         printStatusMessage(calibMode, "WIFI_STA_CONNECTING");
