@@ -1966,10 +1966,10 @@ void handleTestMode(unsigned long currentMillis) {
 
 void loadWiFiCredentials() {
     if (EEPROM.read(0) != EEPROM_MAGIC) {
-        wifiStaSSID[0] = '\0';
-        wifiStaPass[0] = '\0';
+        // EEPROM'da kayıtlı kimlik yok — .ino'daki DEFAULT_WIFI_STA_SSID/PASS geçerli kalır
         return;
     }
+    // EEPROM'da geçerli kayıt var — öncelik EEPROM'da, default değerin üzerine yazar
     for (int i = 0; i < EEPROM_SSID_LEN; i++)
         wifiStaSSID[i] = (char)EEPROM.read(EEPROM_SSID_OFFSET + i);
     for (int i = 0; i < EEPROM_PASS_LEN; i++)
