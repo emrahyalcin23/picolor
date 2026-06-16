@@ -4,7 +4,7 @@
  * Copyright (c) 2026 Emrah YALÇIN
  * MIT License — https://opensource.org/licenses/MIT
  * ------------------------------------------------------------
- * VERSİYON : v0.08.01
+ * VERSİYON : v0.08.02
  * TANIM    : AP+STA çift mod WiFi — cihaz hem ev ağına (STA) bağlanır
  *            hem kendi AP ağını (192.168.42.1) açar. STA kimlik bilgileri
  *            EEPROM'da saklanır; TCP sunucusu her iki arabirimde (AP+STA)
@@ -104,7 +104,7 @@
  * ============================================================
  */
 
-#define FIRMWARE_VERSION  "v0.08.01"   // Firmware sürümü
+#define FIRMWARE_VERSION  "v0.08.02"   // Firmware sürümü
 
 #include "config.h"
 
@@ -272,12 +272,12 @@ const char* CSV_FILENAME     = "/picolor_data.csv"; // Ana kayıt dosyası
 // Mevcut komutu gönderen kullanıcı (Serial/TCP/BLE handler tarafından set edilir)
 static String currentUsername = "serial";
 
-// Çalışma zamanı yapılandırması — config.txt'den yüklenir, yoksa DEFAULT_* kullanılır
-static char cfgWifiApSSID[33]  = DEFAULT_WIFI_AP_SSID;
-static char cfgWifiApPass[65]  = DEFAULT_WIFI_AP_PASS;
-static bool cfgWifiStaAuto     = DEFAULT_WIFI_STA_AUTO;
+// Çalışma zamanı yapılandırması — config.txt'den yüklenir, yoksa bu değerler geçerlidir
+static char cfgWifiApSSID[33]  = "PiColor";
+static char cfgWifiApPass[65]  = "picolor123";
+static bool cfgWifiStaAuto     = true;
 #if LOGGING_ENABLED
-static char cfgLogFile[64]    = DEFAULT_LOG_FILE;
+static char cfgLogFile[64]     = "/user_log.csv";
 #endif
 
 #if WIRELESS_ENABLED

@@ -1,44 +1,15 @@
 // ============================================================
-// ÖZELLIK ANAHTARLARI — Derleme zamanı bayrakları
+// DERLEME ZAMANI AYARLARI
 // ============================================================
-// Bu dosyada yalnızca derleme zamanında (compile-time) belirlenmesi
-// gereken bayraklar yer alır.
-//
-// Çalışma zamanı (runtime) ayarları SD karttaki config.txt
-// dosyasından okunur (bkz. loadSDConfig). SD kart yoksa veya
-// config.txt bulunamazsa aşağıdaki DEFAULT_* değerleri kullanılır.
+// Aşağıdaki 4 ayar çalışma zamanında değiştirilemez.
+// Diğer tüm ayarlar SD karttaki config.txt üzerinden yapılır.
 // ============================================================
 
-// Derleme zamanı özellik bayrakları
-#define WIRELESS_ENABLED  true   // WiFi+BLE aktif/pasif — default: aktif
-#define LOGGING_ENABLED   false  // Kullanıcı logu aktif/pasif — default: pasif
-                                 // SD kart takılı   → komutlar log_file yoluna kaydedilir
-                                 // SD kart takılı değil → loglama otomatik devre dışı
+#define WIRELESS_ENABLED  true   // WiFi + BLE aç/kapat
+#define LOGGING_ENABLED   false  // Kullanıcı komutu logu (SD kart gerektirir)
+#define MAX_TCP_CLIENTS   4      // Eş zamanlı TCP istemci sayısı (dizi boyutu)
+#define DEFAULT_TCP_PORT  8266   // TCP port — yalnızca buradan değiştirilebilir
 
-// Dizi boyutu — derleme zamanında sabit olmalı (bellek düzeni)
-#define MAX_TCP_CLIENTS   4
-
-// ============================================================
-// VARSAYILAN DEĞERLER — config.txt yoksa bu değerler kullanılır
-// ============================================================
-#define DEFAULT_WIFI_AP_SSID      "PiColor"
-#define DEFAULT_WIFI_AP_PASS      "picolor123"
-#define DEFAULT_WIFI_STA_AUTO     true   // Kayıtlı STA bilgisi varsa açılışta otomatik bağlan
-#define DEFAULT_TCP_PORT          8266   // YALNIZCA buradan degistirilebilir (runtime'da degil)
-#define DEFAULT_LOG_FILE          "/user_log.csv"
-
-// ============================================================
 // !! EEPROM / FLASH YAZMA LİMİTİ UYARISI !!
-//
-// RP2040 flash belleği yaklaşık 100.000 blok silme döngüsüne
-// sahiptir. Bu nedenle ayarları EEPROM'a (flash emülasyonu)
-// sık sık yazmaktan kaçının.
-//
-// EEPROM bu projede YALNIZCA WiFi STA kimlik bilgilerini
-// (WIFI_STA_KAYDET komutu) kalıcı saklamak için kullanılmaktadır
-// — ve yalnızca kullanıcı bu komutu verdiğinde yazılır (önyükleme başına değil).
-//
-// Çalışma zamanı yapılandırması (SSID, şifre, port vb.)
-// SD karttaki config.txt üzerinden yönetilmeli; EEPROM'a
-// döngüsel olarak yazılmamalıdır.
-// ============================================================
+// RP2040 flash belleği yaklaşık 100.000 silme döngüsüne sahiptir.
+// EEPROM yalnızca WIFI_STA_KAYDET komutuyla yazılır; döngüsel yazma yapılmaz.
