@@ -4,12 +4,12 @@
  * Copyright (c) 2026 Emrah YALÇIN
  * MIT License — https://opensource.org/licenses/MIT
  * ------------------------------------------------------------
- * VERSİYON : v0.08.02
+ * VERSİYON : v0.09.00
  * TANIM    : AP+STA çift mod WiFi — cihaz hem ev ağına (STA) bağlanır
  *            hem kendi AP ağını (192.168.42.1) açar. STA kimlik bilgileri
  *            EEPROM'da saklanır; TCP sunucusu her iki arabirimde (AP+STA)
- *            dinler. SD karttaki config.txt runtime yapılandırmasını
- *            destekler; SD yoksa config.h DEFAULT_* sabitleri geçerlidir.
+ *            dinler. SD karttaki config.json runtime yapılandırmasını
+ *            destekler; SD yoksa varsayılan değerler geçerlidir.
  * ============================================================
  *
  * DONANIM
@@ -104,9 +104,9 @@
  * ============================================================
  */
 
-#define FIRMWARE_VERSION  "v0.08.02"   // Firmware sürümü
+#define FIRMWARE_VERSION  "v0.09.00"   // Firmware sürümü
 
-#include "config.h"
+#include <ArduinoJson.h>
 
 // ============================================================
 // KÜTÜPHANELER
@@ -118,16 +118,14 @@
 #include <SD.h>
 #include <SPI.h>
 
-#if WIRELESS_ENABLED
 #include <WiFi.h>
 #include <WiFiServer.h>
 #include <LEAmDNS.h>
-#include <BTstackLib.h>  // Pico W/2W BLE — arduino-pico core built-in (BTstack)
+#include <BTstackLib.h>
 extern "C" {
 #include "ble/att_server.h"
 }
 #include <EEPROM.h>
-#endif
 
 // ============================================================
 // PIN TANIMLAMALARI
@@ -272,16 +270,16 @@ const char* CSV_FILENAME     = "/picolor_data.csv"; // Ana kayıt dosyası
 // Mevcut komutu gönderen kullanıcı (Serial/TCP/BLE handler tarafından set edilir)
 static String currentUsername = "serial";
 
-// Çalışma zamanı yapılandırması — config.txt'den yüklenir, yoksa bu değerler geçerlidir
-static char cfgWifiApSSID[33]  = "PiColor";
-static char cfgWifiApPass[65]  = "picolor123";
-static bool cfgWifiStaAuto     = true;
-#if LOGGING_ENABLED
-static char cfgLogFile[64]     = "/user_log.csv";
-#endif
+// Çalışma zamanı yapılandırması — config.json'dan yüklenir, yoksa bu değerler geçerlidir
+static char     cfgWifiApSSID[33] = "PiColor";
+static char     cfgWifiApPass[65] = "picolor123";
+static bool     cfgWifiStaAuto    = true;
+static bool     loggingEnabled    = false;
+static char     cfgLogFile[64]    = "/user_log.csv";
+static uint16_t cfgTcpPort        = 8266;
 
-#if WIRELESS_ENABLED
-static WiFiServer  tcpServer(DEFAULT_TCP_PORT);
+#define MAX_TCP_CLIENTS 4
+static WiFiServer* tcpServer      = nullptr;
 static WiFiClient  tcpClients[MAX_TCP_CLIENTS];
 static char        tcpRxBuf[MAX_TCP_CLIENTS][256];
 static int         tcpRxLen[MAX_TCP_CLIENTS];
@@ -301,7 +299,7 @@ static String blePendingUser;
 // RP2040 flash belleği yaklaşık 100.000 blok silme döngüsüne sahiptir.
 // EEPROM yalnızca WIFI_STA_KAYDET komutuyla yazılır (kullanıcı talebi üzerine);
 // önyükleme başına veya döngüsel olarak ASLA yazılmamalıdır.
-// Çalışma zamanı ayarları için SD karttaki config.txt kullanılır.
+// Çalışma zamanı ayarları için SD karttaki config.json kullanılır.
 
 // EEPROM düzeni — WiFi STA kimlik bilgileri kalıcı olarak burada saklanır
 #define EEPROM_SIZE        128
@@ -313,7 +311,6 @@ static String blePendingUser;
 
 static char wifiStaSSID[EEPROM_SSID_LEN];
 static char wifiStaPass[EEPROM_PASS_LEN];
-#endif
 
 // ============================================================
 // ÇIKTI TİPİ ENUM
@@ -334,13 +331,8 @@ enum OutputType {
 // ========== ÇIKTI MULTİPLEKSERİ ============================
 // ============================================================
 
-// Forward declaration — tanımı wireless fonksiyonlar bölümündedir
-#if WIRELESS_ENABLED
 void bleSendLine(const String& line);
-#endif
-#if LOGGING_ENABLED
 void appendUserLog(const String& username, const char* clientType, const String& command);
-#endif
 
 /*
  * broadcastLine
@@ -348,18 +340,15 @@ void appendUserLog(const String& username, const char* clientType, const String&
  * Bir çıktı satırını tüm aktif kanallara gönderir.
  * Serial: satır birebir (değişmez).
  * TCP/BLE: satıra ";user=<currentUsername>" eklenir — geriye uyumlu.
- * WIRELESS_ENABLED=false ise yalnızca Serial.println çalışır.
  */
 void broadcastLine(const String& line) {
     Serial.println(line);
-#if WIRELESS_ENABLED
     String wirelessLine = line + ";user=" + currentUsername;
     for (int i = 0; i < MAX_TCP_CLIENTS; i++) {
         if (tcpClients[i] && tcpClients[i].connected())
             tcpClients[i].println(wirelessLine);
     }
     if (bleConnected) bleSendLine(wirelessLine);
-#endif
 }
 
 // ============================================================
@@ -646,75 +635,58 @@ void initSDCard() {
 }
 
 /*
- * loadSDConfig
- * ------------
- * SD karttaki /config.txt dosyasını okur ve çalışma zamanı
- * yapılandırma değişkenlerini (cfgWifiApSSID vb.) günceller.
- * Dosya yoksa veya SD kart takılı değilse varsayılan değerler
- * (DEFAULT_* sabitleri) kullanılmaya devam eder.
- * initSDCard()'dan sonra, setupWiFi()'dan önce çağrılmalıdır.
+ * loadJsonConfig
+ * --------------
+ * SD karttaki /config.json dosyasını okur ve çalışma zamanı
+ * yapılandırma değişkenlerini günceller. ArduinoJson 7 kullanır.
+ * Dosya yoksa veya SD kart takılı değilse varsayılan değerler korunur.
  */
-void loadSDConfig() {
+void loadJsonConfig() {
     if (!sdCardAvailable || !sdCardMounted) {
         printStatusMessage(calibMode, "CFG_NO_SD_USING_DEFAULTS");
         return;
     }
-
-    File f = SD.open("/config.txt", FILE_READ);
+    File f = SD.open("/config.json", FILE_READ);
     if (!f) {
         printStatusMessage(calibMode, "CFG_NOT_FOUND_USING_DEFAULTS");
         return;
     }
-
-    while (f.available()) {
-        String line = f.readStringUntil('\n');
-        line.trim();
-        if (line.length() == 0 || line.startsWith("#")) continue;
-
-        int sep = line.indexOf('=');
-        if (sep < 1) continue;
-
-        String key = line.substring(0, sep);
-        String val = line.substring(sep + 1);
-        key.trim();
-        val.trim();
-
-        if (key == "wifi_ap_ssid") {
-            val.toCharArray(cfgWifiApSSID, sizeof(cfgWifiApSSID));
-        } else if (key == "wifi_ap_pass") {
-            val.toCharArray(cfgWifiApPass, sizeof(cfgWifiApPass));
-#if WIRELESS_ENABLED
-        } else if (key == "wifi_sta_ssid") {
-            // SD kart EEPROM'dan üstün — boşsa atla
-            if (val.length() > 0)
-                val.toCharArray(wifiStaSSID, EEPROM_SSID_LEN);
-        } else if (key == "wifi_sta_pass") {
-            val.toCharArray(wifiStaPass, EEPROM_PASS_LEN);
-#endif
-        } else if (key == "basamak") {
-            int d = val.toInt();
-            if (d >= 0 && d <= 6) outputDecimals = d;
-        } else if (key == "logaritmik") {
-            logarithmicOutput = (val == "true" || val == "1");
-        } else if (key == "log_dekad") {
-            float d = val.toFloat();
-            if (d >= 1.0f && d <= 5.0f) logDecades = d;
-        } else if (key == "mod") {
-            if (val == "DINAMIK") calibMode = 1;
-            else                  calibMode = 0;
-        } else if (key == "wifi_sta_otomatik") {
-            cfgWifiStaAuto = (val == "true" || val == "1");
-        } else if (key == "dual_cikti") {
-            dualOutputActive = (val == "true" || val == "1");
-        }
-#if LOGGING_ENABLED
-        else if (key == "log_file") {
-            val.toCharArray(cfgLogFile, sizeof(cfgLogFile));
-        }
-#endif
-    }
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, f);
     f.close();
-    printStatusMessage(calibMode, "CFG_LOADED_FROM_SD");
+    if (err) {
+        char meta[48];
+        snprintf(meta, sizeof(meta), "CFG_JSON_ERROR=%s", err.c_str());
+        printStatusMessage(calibMode, meta);
+        return;
+    }
+
+    strlcpy(cfgWifiApSSID, doc["wifi_ap_ssid"] | cfgWifiApSSID, sizeof(cfgWifiApSSID));
+    strlcpy(cfgWifiApPass, doc["wifi_ap_pass"] | cfgWifiApPass, sizeof(cfgWifiApPass));
+    cfgWifiStaAuto = doc["wifi_sta_otomatik"] | cfgWifiStaAuto;
+
+    const char* staSSID = doc["wifi_sta_ssid"] | "";
+    if (strlen(staSSID) > 0) strlcpy(wifiStaSSID, staSSID, EEPROM_SSID_LEN);
+    const char* staPass = doc["wifi_sta_pass"] | "";
+    if (strlen(staPass) > 0) strlcpy(wifiStaPass, staPass, EEPROM_PASS_LEN);
+
+    cfgTcpPort = doc["tcp_port"] | cfgTcpPort;
+
+    int d = doc["basamak"] | outputDecimals;
+    if (d >= 0 && d <= 6) outputDecimals = d;
+    logarithmicOutput = doc["logaritmik"] | logarithmicOutput;
+    float ld = doc["log_dekad"] | logDecades;
+    if (ld >= 1.0f && ld <= 5.0f) logDecades = ld;
+
+    const char* mod = doc["mod"] | "";
+    if (strcmp(mod, "DINAMIK") == 0) calibMode = 1;
+    else if (strcmp(mod, "STABIL") == 0) calibMode = 0;
+
+    dualOutputActive = doc["dual_cikti"] | dualOutputActive;
+    loggingEnabled   = doc["logging_enabled"] | loggingEnabled;
+    strlcpy(cfgLogFile, doc["log_file"] | cfgLogFile, sizeof(cfgLogFile));
+
+    printStatusMessage(calibMode, "CFG_LOADED_FROM_JSON");
 }
 
 /*
@@ -1417,12 +1389,11 @@ void showDurum() {
              dualOutputActive ? "ON" : "OFF");
     printStatusMessage(calibMode, meta);
 
-#if WIRELESS_ENABLED
     // WiFi AP (her zaman açık — doğrudan bağlantı için)
     snprintf(meta, sizeof(meta), "AP_SSID=%s,AP_IP=%s,PORT=%d",
              cfgWifiApSSID,
              WiFi.softAPIP().toString().c_str(),
-             DEFAULT_TCP_PORT);
+             cfgTcpPort);
     printStatusMessage(calibMode, meta);
 
     // WiFi STA (ev ağı — akıllı ev entegrasyonu için)
@@ -1439,7 +1410,6 @@ void showDurum() {
     // BLE
     snprintf(meta, sizeof(meta), "BLE=%s", bleConnected ? "CONNECTED" : "ADVERTISING");
     printStatusMessage(calibMode, meta);
-#endif
 }
 
 // ============================================================
@@ -1459,8 +1429,7 @@ void processCommandLine(String line, const String& username, const char* clientT
     line.trim();
     if (line.length() == 0) { currentUsername = "serial"; return; }
 
-#if LOGGING_ENABLED
-    {
+    if (loggingEnabled) {
         String logLine = line;
         String logUpper = line;
         logUpper.toUpperCase();
@@ -1468,9 +1437,7 @@ void processCommandLine(String line, const String& username, const char* clientT
         if (logUpper.startsWith("WIFI_AP_PASS="))  logLine = "WIFI_AP_PASS=***";
         appendUserLog(username, clientType, logLine);
     }
-#endif
 
-#if WIRELESS_ENABLED
     // SSID/şifre değerleri case-sensitive — toUpperCase'den önce işle
     {
         String upper = line;
@@ -1496,7 +1463,6 @@ void processCommandLine(String line, const String& username, const char* clientT
             return;
         }
     }
-#endif
 
     line.toUpperCase();
     if (line.length() == 0) { currentUsername = "serial"; return; }
@@ -1747,7 +1713,6 @@ void processCommand(String cmd) {
         showHelp();
     }
 
-#if WIRELESS_ENABLED
     // ====================================================
     // WiFi AP — modülün kendi ağı
     // ====================================================
@@ -1779,7 +1744,6 @@ void processCommand(String cmd) {
     else if (cmd == "WIFI_BILGI") {
         showWiFiBilgi();
     }
-#endif
 
     // ====================================================
     // BİLİNMEYEN KOMUT
@@ -1962,8 +1926,6 @@ void handleTestMode(unsigned long currentMillis) {
 // ========== KABLOSUZ FONKSİYONLARI =========================
 // ============================================================
 
-#if WIRELESS_ENABLED
-
 void loadWiFiCredentials() {
     if (EEPROM.read(0) != EEPROM_MAGIC) {
         wifiStaSSID[0] = '\0';
@@ -1988,7 +1950,7 @@ void saveWiFiCredentials() {
 }
 
 // --- STA kimlik bilgileri: yalnızca RAM (bu oturum) ---
-// Kalıcı kayıt için: config.txt (SD kart) veya WIFI_STA_KAYDET (EEPROM)
+// Kalıcı kayıt için: config.json (SD kart) veya WIFI_STA_KAYDET (EEPROM)
 
 void setWiFiStaSSID(const String& ssid) {
     strncpy(wifiStaSSID, ssid.c_str(), EEPROM_SSID_LEN - 1);
@@ -2005,7 +1967,7 @@ void setWiFiStaPass(const String& pass) {
 }
 
 // --- AP kimlik bilgileri: yalnızca RAM (bu oturum) ---
-// Kalıcı kayıt için: config.txt (SD kart)
+// Kalıcı kayıt için: config.json (SD kart)
 
 void setWiFiApSSID(const String& ssid) {
     ssid.toCharArray(cfgWifiApSSID, sizeof(cfgWifiApSSID));
@@ -2027,7 +1989,7 @@ void restartAP() {
     while (WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) delay(10);
     char meta[80];
     snprintf(meta, sizeof(meta), "AP_RESTARTED,SSID=%s,IP=%s,PORT=%d",
-             cfgWifiApSSID, WiFi.softAPIP().toString().c_str(), DEFAULT_TCP_PORT);
+             cfgWifiApSSID, WiFi.softAPIP().toString().c_str(), cfgTcpPort);
     printStatusMessage(calibMode, meta);
 }
 
@@ -2055,7 +2017,7 @@ void showWiFiBilgi() {
     printStatusMessage(calibMode, meta);
 
     snprintf(meta, sizeof(meta), "AP_SSID=%s,AP_IP=%s,PORT=%d",
-             cfgWifiApSSID, WiFi.softAPIP().toString().c_str(), DEFAULT_TCP_PORT);
+             cfgWifiApSSID, WiFi.softAPIP().toString().c_str(), cfgTcpPort);
     printStatusMessage(calibMode, meta);
 }
 
@@ -2081,8 +2043,9 @@ void setupWiFi() {
         printStatusMessage(calibMode, "WIFI_STA_CONNECTING");
     }
 
-    // TCP sunucusu AP ve STA arabirimlerinin her ikisinde de dinler
-    tcpServer.begin();
+    // TCP sunucusu: cfgTcpPort portunda tüm arayüzlerde dinler
+    tcpServer = new WiFiServer(cfgTcpPort);
+    tcpServer->begin();
 
     // mDNS: picolor.local → TCP erişimi için
     MDNS.begin("picolor");
@@ -2092,7 +2055,7 @@ void setupWiFi() {
 
     char apMeta[96];
     snprintf(apMeta, sizeof(apMeta), "WIFI_AP_STARTED,IP=%s,PORT=%d",
-             WiFi.softAPIP().toString().c_str(), DEFAULT_TCP_PORT);
+             WiFi.softAPIP().toString().c_str(), cfgTcpPort);
     printStatusMessage(calibMode, apMeta);
 }
 
@@ -2181,8 +2144,8 @@ void handleWiFiReconnect(unsigned long currentMillis) {
 }
 
 void handleTCPClients() {
-    // Yeni bağlantı kabul et
-    WiFiClient newClient = tcpServer.accept();
+    if (!tcpServer) return;
+    WiFiClient newClient = tcpServer->accept();
     if (newClient) {
         bool accepted = false;
         for (int i = 0; i < MAX_TCP_CLIENTS; i++) {
@@ -2243,18 +2206,14 @@ void handleBLEClients() {
     }
 }
 
-#endif // WIRELESS_ENABLED
-
-#if LOGGING_ENABLED
 void appendUserLog(const String& username, const char* clientType, const String& command) {
-    if (!sdCardAvailable || !sdCardMounted) return;
+    if (!loggingEnabled || !sdCardAvailable || !sdCardMounted) return;
     File f = SD.open(cfgLogFile, FILE_WRITE);
     if (!f) return;
     f.printf("%lu,%s,%s,%s\n", millis(),
              username.c_str(), clientType, command.c_str());
     f.close();
 }
-#endif
 
 // ============================================================
 // ========== SETUP ==========================================
@@ -2295,20 +2254,15 @@ void setup() {
     // SD kart
     initSDCard();
 
-#if WIRELESS_ENABLED
     // EEPROM önce yükle (düşük öncelik)
     EEPROM.begin(EEPROM_SIZE);
     loadWiFiCredentials();
-#endif
 
-    // SD kart ayarları EEPROM'u geçersiz kılar (yüksek öncelik)
-    // wifi_sta_ssid / wifi_sta_pass SD'de tanımlıysa EEPROM değerleri ezilir
-    loadSDConfig();
+    // JSON config EEPROM'u geçersiz kılar (yüksek öncelik)
+    loadJsonConfig();
 
-#if WIRELESS_ENABLED
     setupWiFi();
     setupBLE();
-#endif
 
     // İlk örnekleme ve LED güncelleme
     lastSampleTime  = millis();
@@ -2333,9 +2287,7 @@ void loop() {
     handleDataSampling(currentMillis);                              // 4. Örnekleme
     handleTestMode(currentMillis);                                  // 5. Canlı akış
     handleSerialCommands();                                         // 6. Seri komutlar
-#if WIRELESS_ENABLED
     handleWiFiReconnect(currentMillis);                             // 7. STA yeniden bağlantı
     handleTCPClients();                                             // 8. TCP komutlar
     handleBLEClients();                                             // 9. BLE komutlar
-#endif
 }
