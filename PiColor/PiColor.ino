@@ -4,11 +4,12 @@
  * Copyright (c) 2026 Emrah YALÇIN
  * MIT License — https://opensource.org/licenses/MIT
  * ------------------------------------------------------------
- * VERSİYON : v0.06.06
- * TANIM    : SD karttaki config.txt üzerinden runtime yapılandırma
- *            (WiFi AP SSID/şifre, TCP port, log dosyası). SD kart
- *            yoksa veya dosya bulunamazsa config.h'deki DEFAULT_*
- *            sabitleri kullanılır. Önceki tüm özellikler korunur.
+ * VERSİYON : v0.07.00
+ * TANIM    : AP+STA çift mod WiFi — cihaz hem ev ağına (STA) bağlanır
+ *            hem kendi AP ağını (192.168.42.1) açar. STA kimlik bilgileri
+ *            EEPROM'da saklanır; TCP sunucusu her iki arabirimde (AP+STA)
+ *            dinler. SD karttaki config.txt runtime yapılandırmasını
+ *            destekler; SD yoksa config.h DEFAULT_* sabitleri geçerlidir.
  * ============================================================
  *
  * DONANIM
@@ -94,7 +95,7 @@
  * ============================================================
  */
 
-#define FIRMWARE_VERSION  "v0.06.06"   // Firmware sürümü
+#define FIRMWARE_VERSION  "v0.07.00"   // Firmware sürümü
 
 #include "config.h"
 
@@ -1391,11 +1392,22 @@ void showDurum() {
     printStatusMessage(calibMode, meta);
 
 #if WIRELESS_ENABLED
-    // WiFi AP
-    snprintf(meta, sizeof(meta), "AP_SSID=%s,AP_IP=%s,TCP_PORT=%d",
+    // WiFi AP (her zaman açık — doğrudan bağlantı için)
+    snprintf(meta, sizeof(meta), "AP_SSID=%s,AP_IP=%s,PORT=%d",
              cfgWifiApSSID,
              WiFi.softAPIP().toString().c_str(),
              DEFAULT_TCP_PORT);
+    printStatusMessage(calibMode, meta);
+
+    // WiFi STA (ev ağı — akıllı ev entegrasyonu için)
+    if (WiFi.status() == WL_CONNECTED) {
+        snprintf(meta, sizeof(meta), "STA_SSID=%s,STA_IP=%s",
+                 wifiStaSSID, WiFi.localIP().toString().c_str());
+    } else if (strlen(wifiStaSSID) > 0) {
+        snprintf(meta, sizeof(meta), "STA_SSID=%s,STA=CONNECTING", wifiStaSSID);
+    } else {
+        strcpy(meta, "STA=NO_CREDENTIALS");
+    }
     printStatusMessage(calibMode, meta);
 
     // BLE
@@ -1936,7 +1948,6 @@ void setWiFiPass(const String& pass) {
 }
 
 void reconnectWiFiSTA() {
-    WiFi.disconnect();
     if (strlen(wifiStaSSID) > 0) {
         WiFi.begin(wifiStaSSID, wifiStaPass);
         printStatusMessage(calibMode, "WIFI_STA_RECONNECTING");
@@ -1946,12 +1957,21 @@ void reconnectWiFiSTA() {
 }
 
 void showWiFiBilgi() {
-    char meta[80];
+    char meta[120];
     if (strlen(wifiStaSSID) > 0) {
-        snprintf(meta, sizeof(meta), "STA_SSID=%s,STA_PASS=***,AP=%s", wifiStaSSID, cfgWifiApSSID);
+        if (WiFi.status() == WL_CONNECTED) {
+            snprintf(meta, sizeof(meta), "STA_SSID=%s,STA_PASS=***,STA_IP=%s",
+                     wifiStaSSID, WiFi.localIP().toString().c_str());
+        } else {
+            snprintf(meta, sizeof(meta), "STA_SSID=%s,STA_PASS=***,STA=CONNECTING", wifiStaSSID);
+        }
     } else {
-        snprintf(meta, sizeof(meta), "STA_SSID=<not_set>,AP=%s", cfgWifiApSSID);
+        strcpy(meta, "STA_SSID=<not_set>");
     }
+    printStatusMessage(calibMode, meta);
+
+    snprintf(meta, sizeof(meta), "AP_SSID=%s,AP_IP=%s,PORT=%d",
+             cfgWifiApSSID, WiFi.softAPIP().toString().c_str(), DEFAULT_TCP_PORT);
     printStatusMessage(calibMode, meta);
 }
 
@@ -1964,18 +1984,20 @@ void clearWiFiCredentials() {
 }
 
 void setupWiFi() {
-    // STA: flash'tan yüklenen kimlik bilgileriyle ağa bağlan (kayıt varsa)
-    if (strlen(wifiStaSSID) > 0)
-        WiFi.begin(wifiStaSSID, wifiStaPass);
-    // AP: kendi ağını her zaman aç (yapılandırma için)
-    // Varsayılan 192.168.4.1 bazı modem/router'larla çakışıyor — 192.168.42.1 kullan
+    // AP önce başlat — 192.168.4.1 bazı modem/router'larla çakıştığından 192.168.42.1 kullan
     WiFi.softAPConfig(IPAddress(192,168,42,1),
                       IPAddress(192,168,42,1),
                       IPAddress(255,255,255,0));
     WiFi.softAP(cfgWifiApSSID, cfgWifiApPass);
-    // AP IP atanana kadar bekle
     while (WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) delay(10);
 
+    // STA: ev ağına non-blocking bağlantı — WIFI_SSID= ile kaydedilmiş kimlik gerekli
+    if (strlen(wifiStaSSID) > 0) {
+        WiFi.begin(wifiStaSSID, wifiStaPass);
+        printStatusMessage(calibMode, "WIFI_STA_CONNECTING");
+    }
+
+    // TCP sunucusu AP ve STA arabirimlerinin her ikisinde de dinler
     tcpServer.begin();
 
     // mDNS: picolor.local → TCP erişimi için
@@ -1984,7 +2006,10 @@ void setupWiFi() {
     // tcpRxLen dizisini sıfırla
     for (int i = 0; i < MAX_TCP_CLIENTS; i++) tcpRxLen[i] = 0;
 
-    printStatusMessage(calibMode, "WIFI_AP_STARTED");
+    char apMeta[96];
+    snprintf(apMeta, sizeof(apMeta), "WIFI_AP_STARTED,IP=%s,PORT=%d",
+             WiFi.softAPIP().toString().c_str(), DEFAULT_TCP_PORT);
+    printStatusMessage(calibMode, apMeta);
 }
 
 // --- BTstack BLE callbacks ---
@@ -2060,6 +2085,15 @@ void bleSendLine(const String& line) {
     String data = line + "\n";
     att_server_notify(bleCentralHandle, nusTxHandle,
         (uint8_t*)data.c_str(), (uint16_t)data.length());
+}
+
+void handleWiFiReconnect(unsigned long currentMillis) {
+    static unsigned long lastSTACheck = 0;
+    if (strlen(wifiStaSSID) == 0) return;
+    if (currentMillis - lastSTACheck < 30000UL) return;
+    lastSTACheck = currentMillis;
+    if (WiFi.status() != WL_CONNECTED)
+        WiFi.begin(wifiStaSSID, wifiStaPass);
 }
 
 void handleTCPClients() {
@@ -2209,7 +2243,8 @@ void loop() {
     handleTestMode(currentMillis);                                  // 5. Canlı akış
     handleSerialCommands();                                         // 6. Seri komutlar
 #if WIRELESS_ENABLED
-    handleTCPClients();                                             // 7. TCP komutlar
-    handleBLEClients();                                             // 8. BLE komutlar
+    handleWiFiReconnect(currentMillis);                             // 7. STA yeniden bağlantı
+    handleTCPClients();                                             // 8. TCP komutlar
+    handleBLEClients();                                             // 9. BLE komutlar
 #endif
 }
