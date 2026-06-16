@@ -4,7 +4,7 @@
  * Copyright (c) 2026 Emrah YALÇIN
  * MIT License — https://opensource.org/licenses/MIT
  * ------------------------------------------------------------
- * VERSİYON : v0.07.00
+ * VERSİYON : v0.07.01
  * TANIM    : AP+STA çift mod WiFi — cihaz hem ev ağına (STA) bağlanır
  *            hem kendi AP ağını (192.168.42.1) açar. STA kimlik bilgileri
  *            EEPROM'da saklanır; TCP sunucusu her iki arabirimde (AP+STA)
@@ -95,7 +95,7 @@
  * ============================================================
  */
 
-#define FIRMWARE_VERSION  "v0.07.00"   // Firmware sürümü
+#define FIRMWARE_VERSION  "v0.07.01"   // Firmware sürümü
 
 #include "config.h"
 
@@ -673,6 +673,14 @@ void loadSDConfig() {
             val.toCharArray(cfgWifiApSSID, sizeof(cfgWifiApSSID));
         } else if (key == "wifi_ap_pass") {
             val.toCharArray(cfgWifiApPass, sizeof(cfgWifiApPass));
+#if WIRELESS_ENABLED
+        } else if (key == "wifi_sta_ssid") {
+            // SD kart EEPROM'dan üstün — boşsa atla
+            if (val.length() > 0)
+                val.toCharArray(wifiStaSSID, EEPROM_SSID_LEN);
+        } else if (key == "wifi_sta_pass") {
+            val.toCharArray(wifiStaPass, EEPROM_PASS_LEN);
+#endif
         } else if (key == "basamak") {
             int d = val.toInt();
             if (d >= 0 && d <= 6) outputDecimals = d;
@@ -2210,11 +2218,18 @@ void setup() {
 
     // SD kart
     initSDCard();
+
+#if WIRELESS_ENABLED
+    // EEPROM önce yükle (düşük öncelik)
+    EEPROM.begin(EEPROM_SIZE);
+    loadWiFiCredentials();
+#endif
+
+    // SD kart ayarları EEPROM'u geçersiz kılar (yüksek öncelik)
+    // wifi_sta_ssid / wifi_sta_pass SD'de tanımlıysa EEPROM değerleri ezilir
     loadSDConfig();
 
 #if WIRELESS_ENABLED
-    EEPROM.begin(EEPROM_SIZE);
-    loadWiFiCredentials();
     setupWiFi();
     setupBLE();
 #endif

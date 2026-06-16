@@ -16,17 +16,48 @@
 # KABLOSUZ ILETISIM
 # ============================================================
 
-# wifi_ap_ssid — Cihazin olusturdugu Wi-Fi aginin adi.
-#   Bu aga baglanan istemciler TCP uzerinden veri alabilir.
+# ============================================================
+# AP MODU — Cihazin kendi olusturdugu Wi-Fi agi
+# ============================================================
+# Cihaz, asagidaki SSID ile her zaman kendi Wi-Fi agini acar.
+# Dogrudan baglanti ve yapilandirma icin kullanilir.
+# AP her zaman aktiftir; STA modundan bagimsizdir.
+
+# wifi_ap_ssid — AP aginin adi (SSID).
 wifi_ap_ssid=PiColor
 
-# wifi_ap_pass — Yukaridaki Wi-Fi aginin sifresi.
-#   WPA2 ile korunur; en az 8 karakter olmalidir.
+# wifi_ap_pass — AP aginin sifresi. WPA2; en az 8 karakter.
 wifi_ap_pass=picolor123
 
-# tcp_port — TCP portu config.h'deki DEFAULT_TCP_PORT ile belirlenir (varsayilan: 8266).
-#   Degistirmek icin config.h dosyasindaki DEFAULT_TCP_PORT degerini guncelleyin.
-#   Bu dosyadan degistirilemez (arduino-pico WiFiServer kisitlamasi).
+# AP IP her zaman 192.168.42.1'dir (config.h'de sabitlenmis).
+# TCP portu config.h'deki DEFAULT_TCP_PORT ile belirlenir (varsayilan: 8266).
+# Bu degerler yalnizca config.h'den degistirilebilir (arduino-pico kisitlamasi).
+
+
+# ============================================================
+# STA MODU — Ev/ofis modemi/router'a baglanti
+# ============================================================
+# Cihaz, asagidaki kimlik bilgileriyle ev aganiza da baglanir.
+# Baglanti basarili olursa TCP sunucusu ev agindaki IP'den de
+# erisilebelir olur — akilli ev sistemleri bu IP'yi kullanir.
+#
+# Oncelik sirasi (yukari = yuksek oncelik):
+#   1. Bu dosyadaki wifi_sta_ssid / wifi_sta_pass
+#   2. EEPROM'a kaydedilmis kimlik bilgileri (WIFI_SSID= komutu)
+#   3. Hicbiri tanimli degilse yalnizca AP modu aktif olur.
+#
+# SD karti olmayan cihazlar icin: Serial Monitor'dan
+#   WIFI_SSID=<ag_adi>  ve  WIFI_PASS=<sifre>  komutlarini girin.
+#   Bu bilgiler EEPROM'a kaydedilir ve reset sonrasi korunur.
+#
+# Not: wifi_sta_ssid bos birakilirsa bu blok gozardi edilir;
+#   EEPROM'daki kayit (varsa) kullanilmaya devam eder.
+
+# wifi_sta_ssid — Ev/ofis Wi-Fi aginin adi. Bos birakin = STA pasif.
+wifi_sta_ssid=
+
+# wifi_sta_pass — Yukaridaki agin sifresi. Acik ag icin bos birakin.
+wifi_sta_pass=
 
 
 # ============================================================
