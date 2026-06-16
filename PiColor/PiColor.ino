@@ -104,7 +104,7 @@
  * ============================================================
  */
 
-#define FIRMWARE_VERSION  "v0.09.03"   // Firmware sürümü
+#define FIRMWARE_VERSION  "v0.09.04"   // Firmware sürümü
 
 #include <ArduinoJson.h>
 
@@ -126,7 +126,22 @@ extern "C" {
 #include "ble/att_server.h"
 }
 #include <EEPROM.h>
-#include <LittleFS.h>
+
+// ============================================================
+// VARSAYILAN AYARLAR — config.json yoksa bu değerler kullanılır
+// SD karta config.json koyarak herhangi birini override edebilirsiniz.
+// ============================================================
+#define DEFAULT_WIFI_AP_SSID    "PiColor"        // AP ağ adı
+#define DEFAULT_WIFI_AP_PASS    "picolor123"      // AP şifresi (min 8 karakter)
+#define DEFAULT_WIFI_STA_AUTO   true              // ev modemine otomatik bağlan
+#define DEFAULT_TCP_PORT        8266              // TCP sunucu portu
+#define DEFAULT_BASAMAK         1                 // ondalık basamak sayısı
+#define DEFAULT_LOGARITMIK      false             // logaritmik çıktı
+#define DEFAULT_LOG_DEKAD       3.0f              // logaritmik dinamik aralık (dekad)
+#define DEFAULT_MOD_STABIL      true              // true = STABIL, false = DINAMIK
+#define DEFAULT_DUAL_CIKTI      true              // ham + normalize ikili çıktı
+#define DEFAULT_LOGGING         false             // CSV log kaydı
+#define DEFAULT_LOG_FILE        "/user_log.csv"   // CSV log dosyası yolu
 
 // ============================================================
 // PIN TANIMLAMALARI
@@ -243,17 +258,17 @@ unsigned long lastSampleTime = 0; // Son örnekleme zamanı
 // ============================================================
 
 bool  testModeActive  = false; // Canlı akış aktif mi?
-bool  dualOutputActive = true; // Dual çıktı modu (ham + işlenmiş)
-int   calibMode       = 0;    // 0=STABIL  1=DINAMIK
+bool  dualOutputActive = DEFAULT_DUAL_CIKTI;
+int   calibMode       = DEFAULT_MOD_STABIL ? 0 : 1;  // 0=STABIL  1=DINAMIK
 float maxObserved     = 1000.0f; // Dinamik mod için gözlemlenen maksimum
 
 // ============================================================
 // ÇIKTI FORMAT DEĞİŞKENLERİ
 // ============================================================
 
-int   outputDecimals    = 1;     // Ondalık basamak sayısı (varsayılan: 1 — mevcut davranış)
-bool  logarithmicOutput = false; // Weber-Fechner log dönüşümü (varsayılan: kapalı)
-float logDecades        = 3.0f;  // Log dinamik aralık — dekad cinsinden (TCS34725 tipik: 2–4)
+int   outputDecimals    = DEFAULT_BASAMAK;
+bool  logarithmicOutput = DEFAULT_LOGARITMIK;
+float logDecades        = DEFAULT_LOG_DEKAD;
 
 // ============================================================
 // SD KART DEĞİŞKENLERİ
@@ -271,17 +286,17 @@ const char* CSV_FILENAME     = "/picolor_data.csv"; // Ana kayıt dosyası
 // Mevcut komutu gönderen kullanıcı (Serial/TCP/BLE handler tarafından set edilir)
 static String currentUsername = "serial";
 
-// Çalışma zamanı yapılandırması — config.json'dan yüklenir, yoksa bu değerler geçerlidir
-static char     cfgWifiApSSID[33] = "PiColor";
-static char     cfgWifiApPass[65] = "picolor123";
-static bool     cfgWifiStaAuto    = true;
-static bool     loggingEnabled    = false;
-static char     cfgLogFile[64]    = "/user_log.csv";
-static uint16_t cfgTcpPort        = 8266;
+// Çalışma zamanı yapılandırması — başlangıç değerleri DEFAULT_* sabitlerinden gelir,
+// SD karttaki config.json varsa üzerine yazılır.
+static char     cfgWifiApSSID[33] = DEFAULT_WIFI_AP_SSID;
+static char     cfgWifiApPass[65] = DEFAULT_WIFI_AP_PASS;
+static bool     cfgWifiStaAuto    = DEFAULT_WIFI_STA_AUTO;
+static bool     loggingEnabled    = DEFAULT_LOGGING;
+static char     cfgLogFile[64]    = DEFAULT_LOG_FILE;
+static uint16_t cfgTcpPort        = DEFAULT_TCP_PORT;
 static bool     wifiEnabled       = true;   // WIRELESS_ENABLED=0/1 komutuyla oturum bazlı değişir
 
 #define MAX_TCP_CLIENTS 4
-#define DEFAULT_TCP_PORT 8266
 // Global nesne: arduino-pico'da WiFiServer::begin() güvenilir çalışması için global olmalı
 static WiFiServer  g_tcpServer(DEFAULT_TCP_PORT);
 static WiFiServer* tcpServer      = nullptr;
@@ -647,22 +662,12 @@ void initSDCard() {
  * Dosya yoksa veya SD kart takılı değilse varsayılan değerler korunur.
  */
 void loadJsonConfig() {
-    // Öncelik: SD kart → Pico internal flash (LittleFS) → hardcoded default
-    File f;
-    const char* source = nullptr;
-
-    if (sdCardAvailable && sdCardMounted) {
-        f = SD.open("/config.json", FILE_READ);
-        if (f) source = "SD";
+    // SD kart yoksa veya config.json bulunamazsa .ino içindeki sabit değerler geçerli
+    if (!sdCardAvailable || !sdCardMounted) {
+        printStatusMessage(calibMode, "CFG_NO_SD_USING_DEFAULTS");
+        return;
     }
-
-    if (!f) {
-        if (LittleFS.begin()) {
-            f = LittleFS.open("/config.json", "r");
-            if (f) source = "LFS";
-        }
-    }
-
+    File f = SD.open("/config.json", FILE_READ);
     if (!f) {
         printStatusMessage(calibMode, "CFG_NOT_FOUND_USING_DEFAULTS");
         return;
@@ -673,7 +678,7 @@ void loadJsonConfig() {
     f.close();
     if (err) {
         char meta[48];
-        snprintf(meta, sizeof(meta), "CFG_JSON_ERROR=%s,SRC=%s", err.c_str(), source);
+        snprintf(meta, sizeof(meta), "CFG_JSON_ERROR=%s", err.c_str());
         printStatusMessage(calibMode, meta);
         return;
     }
@@ -703,9 +708,7 @@ void loadJsonConfig() {
     loggingEnabled   = doc["logging_enabled"] | loggingEnabled;
     strlcpy(cfgLogFile, doc["log_file"] | cfgLogFile, sizeof(cfgLogFile));
 
-    char msg[32];
-    snprintf(msg, sizeof(msg), "CFG_LOADED_FROM_%s", source);
-    printStatusMessage(calibMode, msg);
+    printStatusMessage(calibMode, "CFG_LOADED_FROM_SD");
 }
 
 /*
