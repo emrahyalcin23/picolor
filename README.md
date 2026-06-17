@@ -1,59 +1,501 @@
-# PiColor 🎨
+# PiColor
 
-PiColor is a smart ambient light, color, and brightness sensor based on the Raspberry Pi Pico, utilizing a TCS34725 sensor and NeoPixel LEDs. 
+**PiColor** is a smart ambient light and color analyzer built on the Raspberry Pi Pico (RP2040). It reads RGB and clear-channel data from a TCS34725 sensor, normalizes the results to a 0–100 scale, and streams them over USB Serial, WiFi TCP, and Bluetooth Low Energy simultaneously.
 
-it automatically identifies its port when connected to a computer and accepts commands directly via a standalone terminal or PowerShell script. 
-While its primary focus is real-time ambient color and light analysis, it also features a 15-minute rolling memory buffer to calculate and output color averages for requested short-term intervals.
+Current firmware: **v0.09.04**
 
-## ✨ Features
+---
 
-* **Ambient Light & Color Sensing:** Reads environmental RGB values and ambient light intensity using the TCS34725 sensor.
-* **Hardware Calibration:** R, G, B, and L (Lightness) coefficients can be adjusted on the fly to match specific environmental conditions using the attached Rotary Encoder.
-* **Automatic Device Recognition (Handshake):** Prevents serial port conflicts by returning a unique response to the `KIMSIN` command, allowing the computer software to automatically find the correct device.
-* **Short-Term Memory (15-Minute Rolling Buffer):** Stores calibrated color data in RAM every second, allowing you to fetch historical average data.
-* **Visual Feedback:** Dynamically visualizes the calibration state and standby/active modes via an 8-LED NeoPixel strip/ring.
+## Hardware
 
-## 📊 Output Value Range
- 
-All calibrated RGB outputs (`OKU`, `OKU_0`, `OKU_X`) are normalized to **0–100**.
- 
-| Constant | Value | Description |
+| Component | Interface | Pins |
 |---|---|---|
-| `NORM_INPUT_MAX` | 65535 × 2.0 × 2.0 = **262140** | Theoretical max calibrated value (raw max × max color factor × max light factor) |
-| `NORM_OUTPUT_MIN` | **0** | Minimum output value |
-| `NORM_OUTPUT_MAX` | **100** | Maximum output value |
- 
-- Designed for **indoor ambient light** conditions.
-- Values exceeding 262140 are clamped to 100.
-- The `RAW` command returns uncalibrated 16-bit sensor values (0–65535).
- 
+| TCS34725 color sensor | I2C | SDA=4, SCL=5 |
+| TCS white LED | GPIO (active-LOW) | 15 |
+| Rotary encoder | GPIO + ISR | CLK=16, DT=17, SW=18 |
+| NeoPixel strip (8 LEDs) | Data | 28 |
+| SD card | SPI | CS=1, SCK=2, MOSI=3, MISO=0 |
 
-# PiColor [TÜRKÇE] 🎨
+Sensor settings compiled in: gain **4×**, integration time **50 ms**.
 
-PiColor, Raspberry Pi Pico tabanlı, TCS34725 sensörü ve NeoPixel LED'ler kullanan akıllı bir ortam ışığı, renk ve parlaklık sensörüdür. 
+---
 
-Bir bilgisayara bağlandığında portunu otomatik olarak tanımlar ve bağımsız bir terminal veya PowerShell betiği üzerinden doğrudan komut kabul eder. 
-Ana odak noktası gerçek zamanlı ortam rengi ve ışık analizi olmakla birlikte, talep edilen kısa süreli aralıklar için renk ortalamalarını hesaplayıp çıktı vermek üzere 15 dakikalık döngüsel bir bellek havuzuna (rolling memory buffer) sahiptir.
+## Connections
 
-## ✨ Özellikler
+### USB Serial
+Connect via any serial terminal at **115200 baud**. The device identifies itself by returning `IDENTITY=PICOLOR_v0.09.04` to the `KIMSIN` command — use this for automatic port detection.
 
-* **Ortam Işığı ve Renk Algılama:** TCS34725 sensörünü kullanarak çevresel RGB değerlerini ve ortam ışığı şiddetini okur.
-* **Donanımsal Kalibrasyon:** Sisteme bağlı Rotary Encoder kullanılarak R, G, B ve L (Aydınlık) katsayıları, spesifik ortam koşullarına uyum sağlamak üzere anlık olarak ayarlanabilir.
-* **Otomatik Cihaz Tanıma (Handshake):** `KIMSIN` komutuna benzersiz bir yanıt dönerek seri port çakışmalarını önler ve bilgisayar yazılımının doğru cihazı otomatik olarak bulmasını sağlar.
-* **Kısa Süreli Hafıza (15 Dakikalık Veri Havuzu):** Kalibre edilmiş renk verilerini her saniye RAM üzerinde depolayarak geçmişe dönük ortalama verileri çekmenize olanak tanır.
-* **Görsel Geri Bildirim:** 8'li NeoPixel LED şerit/halka üzerinden kalibrasyon durumunu ve bekleme/aktif modları dinamik olarak görselleştirir.
+### WiFi (AP + STA dual mode)
+The device simultaneously runs its own access point **and** can connect to a home/office network.
 
-
-## 📊 Çıktı Değer Aralığı
- 
-Tüm kalibre edilmiş RGB çıktıları (`OKU`, `OKU_0`, `OKU_X`) **0–100** aralığına normalize edilir.
- 
-| Sabit | Değer | Açıklama |
+| Mode | Default | Notes |
 |---|---|---|
-| `NORM_INPUT_MAX` | 65535 × 2.0 × 2.0 = **262140** | Teorik maksimum kalibre değer (ham maks × maks renk katsayısı × maks ışık katsayısı) |
-| `NORM_OUTPUT_MIN` | **0** | Minimum çıktı değeri |
-| `NORM_OUTPUT_MAX` | **100** | Maksimum çıktı değeri |
- 
-- **İç mekan** ortam ışığı koşulları için tasarlanmıştır.
-- 262140 değerini aşan değerler 100 ile kesilir.
-- `RAW` komutu kalibre edilmemiş 16-bit ham sensör değerlerini döndürür (0–65535).
+| AP SSID | `PiColor` | Always active |
+| AP Password | `picolor123` | WPA2 |
+| AP IP | `192.168.42.1` | Fixed |
+| TCP port | `8266` | Configurable at runtime |
+| mDNS | `picolor.local` | On connected network |
+| Max TCP clients | 4 | Simultaneous |
+
+STA credentials are read from `config.json` (SD card), then EEPROM, then compile-time defaults. Use `WIFI_STA_KAYDET` to persist credentials to EEPROM without SD.
+
+### Bluetooth LE
+Implements **Nordic UART Service (NUS)** via BTstack.
+
+| Characteristic | UUID | Direction |
+|---|---|---|
+| RX (host → device) | `6E400002-B5A3-F393-E0A9-E50E24DCCA9E` | Write |
+| TX (device → host) | `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` | Notify |
+
+All three channels receive identical output. TCP and BLE responses append `;user=<username>` to each line.
+
+---
+
+## Configuration
+
+At boot the device applies settings in this priority order:
+
+1. `config.json` on SD card (highest priority)
+2. EEPROM (WiFi STA credentials only)
+3. Compile-time defaults (lowest priority)
+
+`/config.json` reference — all keys are optional:
+
+```json
+{
+  "wifi_ap_ssid":      "PiColor",
+  "wifi_ap_pass":      "picolor123",
+  "wifi_sta_otomatik": true,
+  "wifi_sta_ssid":     "",
+  "wifi_sta_pass":     "",
+  "tcp_port":          8266,
+  "basamak":           1,
+  "logaritmik":        false,
+  "log_dekad":         3.0,
+  "mod":               "STABIL",
+  "dual_cikti":        true,
+  "logging_enabled":   false,
+  "log_file":          "/user_log.csv"
+}
+```
+
+---
+
+## Output Protocol
+
+Every output line — across all channels — follows this format:
+
+```
+<timestamp_ms>;<type>;<mode>;<v1>;<v2>;<v3>[;<meta>]
+```
+
+**Type field:**
+
+| Value | Name | Description |
+|---|---|---|
+| 0 | LIVE | Live stream line (300 ms cadence) |
+| 1 | SINGLE | Single instantaneous reading |
+| 2 | AVERAGE | Time-averaged reading |
+| 3 | RAW | Raw 16-bit sensor values |
+| 4 | STATUS | Status message (v1/v2/v3 = 0) |
+| 5 | ERROR | Error message (v1/v2/v3 = 0) |
+| 6 | DUAL | Raw + processed combined |
+| 7 | FULL | Complete data packet |
+
+**Mode field:** `0` = STABIL, `1` = DINAMIK
+
+**DUAL format (type 6):**
+```
+<ts>;6;<mode>;<rawR>;<rawG>;<rawB>;<rawC>;<procR>;<procG>;<procB>[;<meta>]
+```
+
+### Value range
+Processed RGB values are normalized to **0–100**. The `RAW` command returns raw 16-bit sensor values (0–65535). Lux and color temperature appear in the `meta` field where applicable.
+
+---
+
+## Calibration
+
+### STABIL mode (default)
+Normalizes against a fixed reference (`NORM_INPUT_MAX = 1000`). Calibration coefficients wR, wG, wB, wL shift individual channels:
+
+```
+output = (raw × (1 + w_channel) × (1 + wL)) / NORM_INPUT_MAX × 100
+```
+
+Coefficients range from −1.0 to +1.0 (minimum effective value: 0.05). Adjust them in real time with the rotary encoder — short-press cycles through R → G → B → L channels, and turning adjusts the selected coefficient.
+
+### DINAMIK mode
+Scales to the highest value observed so far (`maxObserved`). When a new maximum is detected, `maxObserved` grows immediately with a 10 % margin; every minute it decays by 5 %. This keeps the full 0–100 range occupied even as lighting changes. Use `SIFIRLA` to reset `maxObserved` to 1000.
+
+Both modes can be overridden per command (e.g. `STABIL_OKU_0`) without changing the global mode.
+
+### Output scaling
+| Command | Effect |
+|---|---|
+| `BASAMAK_<n>` | Decimal places in output (0–6, default 1) |
+| `LOGARITMIK` | Apply Weber-Fechner log transform: `y = log₁₀(1 + x·(10^D−1)/100) / D · 100` |
+| `LOGARITMIK_<n>` | Same, with custom decade range D (1.0–5.0; 3 = 1000:1 recommended) |
+| `LINEER` | Remove log transform (default) |
+| `VARSAYILAN` | Reset to defaults: 1 decimal, linear |
+
+Log scaling preserves f(0)=0 and f(100)=100 and does not affect RAW values, lux, or coefficients.
+
+---
+
+## Command Reference
+
+Commands are case-insensitive. Multiple commands can be sent on one line, space or comma separated. Use `USER:<name> <command>` prefix on TCP/BLE to tag output lines with a username.
+
+### Device info
+```
+KIMSIN                    → IDENTITY=PICOLOR_v0.09.04
+VERSIYON / VERSION        → firmware version string
+DURUM / STATUS            → full system status (WiFi, BLE, settings)
+MOD                       → current calibration mode
+YARDIM / HELP             → command list
+TEST                      → system self-test
+```
+
+### Calibration mode
+```
+MOD_STABIL                Switch to STABIL (fixed reference)
+MOD_DINAMIK               Switch to DINAMIK (adaptive)
+KATSAYILAR / COEFF        Show wR, wG, wB, wL values
+SIFIRLA / RESET           Zero all coefficients; reset maxObserved to 1000
+```
+
+### Reading commands
+```
+OKU                       Start live stream (type 0, 300 ms interval)
+OKU_STOP                  Stop live stream
+OKU_0                     Single reading, global mode (type 1)
+OKU_S<n>                  Average of last n seconds, e.g. OKU_S60 (type 2)
+OKU_<m>                   Average of last m minutes, e.g. OKU_15  (type 2)
+RAW                       Single raw 16-bit reading (type 3)
+TUM / ALL                 Full data packet: instant + 60/300/900 s averages (type 7)
+```
+
+Mode override prefixes work with all reading commands:
+```
+STABIL_OKU_0 / STABIL_OKU_S<n> / STABIL_OKU_<m> / STABIL_OKU
+DINAMIK_OKU_0 / DINAMIK_OKU_S<n> / DINAMIK_OKU_<m> / DINAMIK_OKU
+```
+
+### Dual output (raw + processed)
+```
+DUAL_MODE_ON / DUAL_MODE_OFF     Enable/disable dual output globally
+DUAL_OKU                         Single dual reading (type 6)
+DUAL_OKU_S<n>                    Dual average, last n seconds
+DUAL_AKIS                        Live dual stream
+STABIL_DUAL_OKU[_0/_S<n>]        Dual with STABIL override
+DINAMIK_DUAL_OKU[_0/_S<n>]       Dual with DINAMIK override
+STABIL_DUAL_AKIS / DINAMIK_DUAL_AKIS
+```
+
+### Output format
+```
+BASAMAK_<n>               Decimal places 0–6 (default 1)
+LOGARITMIK                Log scale on (current decade setting)
+LOGARITMIK_<n>            Log scale on + set decade (1.0–5.0)
+LINEER                    Linear scale (default)
+VARSAYILAN / DEFAULT      Factory defaults: 1 decimal, linear
+OLCEK / SCALE             Show current format settings
+```
+
+### Buffer & SD
+```
+TAMPON / BUFFER           Buffer fill: count / 900 samples
+TAMPON_SIL / BUFFER_CLEAR Clear the 15-minute rolling buffer
+SD_DURUM / SD_STATUS      SD card status and auto-log state
+SD_AKTAR / SD_EXPORT      Export buffer to /export_<ts>.csv on SD
+SDCARD_YAZ_AKTIF          Enable per-sample auto-logging to CSV
+SDCARD_YAZ_PASIF          Disable per-sample auto-logging
+```
+
+### WiFi
+```
+WIFI_AP_SSID=<name>       Set AP SSID in RAM (this session only)
+WIFI_AP_PASS=<pass>       Set AP password in RAM (this session only)
+WIFI_AP_YENILE            Restart AP with current RAM settings
+
+WIFI_STA_SSID=<network>   Set home network SSID in RAM
+WIFI_STA_PASS=<pass>      Set home network password in RAM
+WIFI_STA_BAGLAN           Connect to configured home network
+WIFI_STA_KES              Disconnect from home network (AP unaffected)
+WIFI_STA_KAYDET           Save STA credentials to EEPROM (no SD needed)
+WIFI_STA_SIFIRLA          Erase EEPROM credentials, revert to defaults
+WIFI_BILGI                Show AP IP, STA IP, and connection status
+
+TCP_PORT=<port>           Change TCP server port at runtime
+WIRELESS_ENABLED=<0|1>    Enable/disable WiFi for this session
+```
+
+---
+
+## Data Storage
+
+### 15-minute RAM buffer
+The device samples sensor data every second and stores up to **900 samples** in a circular buffer. Both processed (histR/G/B, float 0–100) and raw (histRawR/G/B/C, uint16_t) values are kept. Averages over any interval up to 15 minutes can be read with `OKU_S<n>` or `OKU_<m>`.
+
+### SD card
+When an SD card is present, the device:
+- Reads `config.json` on boot (overrides compile-time defaults).
+- Creates `/picolor_data.csv` and appends a row each time `SD_AKTAR` or auto-logging triggers.
+
+CSV columns: `timestamp_ms, raw_r, raw_g, raw_b, raw_c, proc_r, proc_g, proc_b, lux, color_temp_k, wR, wG, wB, wL, state, mode`
+
+User command history (optional): `/user_log.csv` — `timestamp, username, client_type, command`. WiFi passwords are masked as `***`.
+
+---
+
+---
+
+# PiColor [TÜRKÇE]
+
+**PiColor**, Raspberry Pi Pico (RP2040) üzerine kurulu akıllı bir ortam ışığı ve renk analizörüdür. TCS34725 sensöründen RGB ve clear-kanal verisi okur, sonuçları 0–100 skalasına normalize eder ve USB Serial, WiFi TCP ve Bluetooth Low Energy üzerinden eş zamanlı olarak yayınlar.
+
+Güncel firmware: **v0.09.04**
+
+---
+
+## Donanım
+
+| Bileşen | Arabirim | Pinler |
+|---|---|---|
+| TCS34725 renk sensörü | I2C | SDA=4, SCL=5 |
+| TCS beyaz LED | GPIO (aktif-LOW) | 15 |
+| Rotary encoder | GPIO + ISR | CLK=16, DT=17, SW=18 |
+| NeoPixel şerit (8 LED) | Data | 28 |
+| SD kart | SPI | CS=1, SCK=2, MOSI=3, MISO=0 |
+
+Derleme zamanı sensör ayarları: kazanım **4×**, entegrasyon süresi **50 ms**.
+
+---
+
+## Bağlantı Kanalları
+
+### USB Serial
+115200 baud ile herhangi bir seri terminale bağlanın. `KIMSIN` komutuna `IDENTITY=PICOLOR_v0.09.04` yanıtı döner — otomatik port tanıma için kullanın.
+
+### WiFi (AP + STA çift mod)
+Cihaz kendi erişim noktasını açarken aynı anda ev/ofis ağına da bağlanabilir.
+
+| Mod | Varsayılan | Not |
+|---|---|---|
+| AP SSID | `PiColor` | Her zaman aktif |
+| AP Şifre | `picolor123` | WPA2 |
+| AP IP | `192.168.42.1` | Sabit |
+| TCP port | `8266` | Çalışma zamanında değiştirilebilir |
+| mDNS | `picolor.local` | Bağlı ağda çalışır |
+| Maks TCP istemci | 4 | Eş zamanlı |
+
+STA kimlik bilgileri önce `config.json` (SD), sonra EEPROM, sonra derleme zamanı sabitlerinden okunur. SD kart yoksa `WIFI_STA_KAYDET` ile EEPROM'a kalıcı olarak kaydedilir.
+
+### Bluetooth LE
+BTstack tabanlı **Nordic UART Service (NUS)** uygular.
+
+| Characteristic | UUID | Yön |
+|---|---|---|
+| RX (host → cihaz) | `6E400002-B5A3-F393-E0A9-E50E24DCCA9E` | Write |
+| TX (cihaz → host) | `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` | Notify |
+
+Üç kanalın çıktısı aynıdır. TCP ve BLE yanıtlarına `;user=<kullanıcı>` eklenir.
+
+---
+
+## Yapılandırma
+
+Önyüklemede ayarlar şu öncelik sırasıyla uygulanır:
+
+1. SD karttaki `config.json` (en yüksek öncelik)
+2. EEPROM (yalnızca WiFi STA kimlik bilgileri)
+3. Derleme zamanı sabitleri (en düşük öncelik)
+
+`/config.json` referansı — tüm anahtarlar isteğe bağlıdır:
+
+```json
+{
+  "wifi_ap_ssid":      "PiColor",
+  "wifi_ap_pass":      "picolor123",
+  "wifi_sta_otomatik": true,
+  "wifi_sta_ssid":     "",
+  "wifi_sta_pass":     "",
+  "tcp_port":          8266,
+  "basamak":           1,
+  "logaritmik":        false,
+  "log_dekad":         3.0,
+  "mod":               "STABIL",
+  "dual_cikti":        true,
+  "logging_enabled":   false,
+  "log_file":          "/user_log.csv"
+}
+```
+
+---
+
+## Çıktı Protokolü
+
+Her çıktı satırı — tüm kanallarda — şu formatı izler:
+
+```
+<timestamp_ms>;<tip>;<mod>;<v1>;<v2>;<v3>[;<meta>]
+```
+
+**Tip alanı:**
+
+| Değer | Ad | Açıklama |
+|---|---|---|
+| 0 | LIVE | Canlı akış satırı (300 ms aralık) |
+| 1 | SINGLE | Tek anlık okuma |
+| 2 | AVERAGE | Zaman ortalamalı okuma |
+| 3 | RAW | Ham 16-bit sensör değerleri |
+| 4 | STATUS | Durum mesajı (v1/v2/v3 = 0) |
+| 5 | ERROR | Hata mesajı (v1/v2/v3 = 0) |
+| 6 | DUAL | Ham + işlenmiş birleşik |
+| 7 | FULL | Tam veri paketi |
+
+**Mod alanı:** `0` = STABIL, `1` = DINAMIK
+
+**DUAL format (tip 6):**
+```
+<ts>;6;<mod>;<hamR>;<hamG>;<hamB>;<hamC>;<prR>;<prG>;<prB>[;<meta>]
+```
+
+### Değer aralığı
+İşlenmiş RGB değerleri **0–100** aralığına normalize edilir. `RAW` komutu ham 16-bit sensör değerlerini (0–65535) döndürür. Lüks ve renk sıcaklığı uygun komutların `meta` alanında yer alır.
+
+---
+
+## Kalibrasyon
+
+### STABIL mod (varsayılan)
+Sabit bir referans değere (`NORM_INPUT_MAX = 1000`) göre normalize eder. wR, wG, wB, wL katsayıları her kanalı ayrı ayrı kaydırır:
+
+```
+çıktı = (ham × (1 + w_kanal) × (1 + wL)) / NORM_INPUT_MAX × 100
+```
+
+Katsayılar −1.0 ile +1.0 arasındadır (minimum etkin değer: 0.05). Rotary encoder ile gerçek zamanlı ayarlanır — kısa basış R → G → B → L kanallarını döngüsel seçer, çevirme seçili katsayıyı değiştirir.
+
+### DINAMIK mod
+Şimdiye kadar gözlemlenen en yüksek değere (`maxObserved`) göre ölçekler. Yeni maksimum algılandığında `maxObserved` %10 marjla anında büyür; her dakika %5 azalır. Işık değiştikçe 0–100 aralığı dolu kalmaya devam eder. `SIFIRLA` ile `maxObserved` 1000'e döner.
+
+Her iki mod da global modu değiştirmeden komut bazlı geçersiz kılınabilir (örn. `STABIL_OKU_0`).
+
+### Çıktı ölçeği
+| Komut | Etki |
+|---|---|
+| `BASAMAK_<n>` | Ondalık basamak sayısı (0–6, varsayılan 1) |
+| `LOGARITMIK` | Weber-Fechner log dönüşümü: `y = log₁₀(1 + x·(10^D−1)/100) / D · 100` |
+| `LOGARITMIK_<n>` | Aynı, özel dekad aralığı D ile (1.0–5.0; 3 = 1000:1 önerilen) |
+| `LINEER` | Log dönüşümü kaldır (varsayılan) |
+| `VARSAYILAN` | Fabrika ayarına dön: 1 basamak, lineer |
+
+Log ölçeği f(0)=0 ve f(100)=100'ü korur; ham değerleri, lüksi ve katsayıları etkilemez.
+
+---
+
+## Komut Referansı
+
+Komutlar büyük/küçük harf duyarsızdır. Aynı satıra birden fazla komut yazılabilir (boşluk veya virgülle ayrılır). TCP/BLE'de `USER:<ad> <komut>` öneki kullanılarak çıktı satırlarına kullanıcı adı etiketi eklenir.
+
+### Cihaz bilgisi
+```
+KIMSIN                    → IDENTITY=PICOLOR_v0.09.04
+VERSIYON / VERSION        → firmware sürüm dizisi
+DURUM / STATUS            → tam sistem durumu (WiFi, BLE, ayarlar)
+MOD                       → mevcut kalibrasyon modu
+YARDIM / HELP             → komut listesi
+TEST                      → sistem öz-testi
+```
+
+### Kalibrasyon modu
+```
+MOD_STABIL                STABIL moda geç (sabit referans)
+MOD_DINAMIK               DINAMIK moda geç (uyarlamalı)
+KATSAYILAR / COEFF        wR, wG, wB, wL değerlerini göster
+SIFIRLA / RESET           Tüm katsayıları sıfırla; maxObserved = 1000
+```
+
+### Okuma komutları
+```
+OKU                       Canlı akışı başlat (tip 0, 300 ms aralık)
+OKU_STOP                  Canlı akışı durdur
+OKU_0                     Tek anlık okuma, global mod (tip 1)
+OKU_S<n>                  Son n SANİYE ortalaması, ör. OKU_S60 (tip 2)
+OKU_<m>                   Son m DAKİKA ortalaması, ör. OKU_15  (tip 2)
+RAW                       Tek ham 16-bit okuma (tip 3)
+TUM / ALL                 Tam paket: anlık + 60/300/900 s ortalamaları (tip 7)
+```
+
+Mod geçersiz kılma önekleri tüm okuma komutlarıyla çalışır:
+```
+STABIL_OKU_0 / STABIL_OKU_S<n> / STABIL_OKU_<m> / STABIL_OKU
+DINAMIK_OKU_0 / DINAMIK_OKU_S<n> / DINAMIK_OKU_<m> / DINAMIK_OKU
+```
+
+### Dual çıktı (ham + işlenmiş)
+```
+DUAL_MODE_ON / DUAL_MODE_OFF     Global dual çıktıyı aç/kapat
+DUAL_OKU                         Tek dual okuma (tip 6)
+DUAL_OKU_S<n>                    Dual ortalama, son n saniye
+DUAL_AKIS                        Canlı dual akış
+STABIL_DUAL_OKU[_0/_S<n>]        STABIL geçersiz kılma ile dual
+DINAMIK_DUAL_OKU[_0/_S<n>]       DINAMIK geçersiz kılma ile dual
+STABIL_DUAL_AKIS / DINAMIK_DUAL_AKIS
+```
+
+### Çıktı formatı
+```
+BASAMAK_<n>               Ondalık basamak 0–6 (varsayılan 1)
+LOGARITMIK                Log ölçeği aç (mevcut dekad ayarıyla)
+LOGARITMIK_<n>            Log ölçeği aç + dekad ayarla (1.0–5.0)
+LINEER                    Lineer ölçek (varsayılan)
+VARSAYILAN / DEFAULT      Fabrika ayarı: 1 basamak, lineer
+OLCEK / SCALE             Mevcut format ayarlarını göster
+```
+
+### Tampon ve SD
+```
+TAMPON / BUFFER           Tampon doluluk: örnek / 900
+TAMPON_SIL / BUFFER_CLEAR Tamponu temizle
+SD_DURUM / SD_STATUS      SD kart durumu ve otomatik kayıt durumu
+SD_AKTAR / SD_EXPORT      Tamponu SD'ye /export_<ts>.csv olarak yaz
+SDCARD_YAZ_AKTIF          Her örnekte SD'ye otomatik kayıt AÇ
+SDCARD_YAZ_PASIF          Her örnekte SD'ye otomatik kayıt KAPAT
+```
+
+### WiFi
+```
+WIFI_AP_SSID=<adi>        AP SSID'sini RAM'e yaz (bu oturum)
+WIFI_AP_PASS=<sifre>      AP şifresini RAM'e yaz (bu oturum)
+WIFI_AP_YENILE            AP'yi mevcut RAM bilgileriyle yeniden başlat
+
+WIFI_STA_SSID=<ag>        Modem ağ adını RAM'e yaz
+WIFI_STA_PASS=<sifre>     Modem şifresini RAM'e yaz
+WIFI_STA_BAGLAN           Yapılandırılmış ev ağına bağlan
+WIFI_STA_KES              Ev ağından kes (AP etkilenmez)
+WIFI_STA_KAYDET           STA kimlik bilgilerini EEPROM'a kaydet
+WIFI_STA_SIFIRLA          EEPROM kimlik bilgilerini sil, varsayılana dön
+WIFI_BILGI                AP IP, STA IP ve bağlantı durumunu göster
+
+TCP_PORT=<port>           TCP sunucu portunu çalışma zamanında değiştir
+WIRELESS_ENABLED=<0|1>    WiFi'yi bu oturum için etkinleştir/devre dışı bırak
+```
+
+---
+
+## Veri Depolama
+
+### 15 dakikalık RAM tamponu
+Cihaz her saniye sensör verisi örnekler ve dairesel bir tamponda en fazla **900 örnek** saklar. Hem işlenmiş (histR/G/B, float 0–100) hem de ham (histRawR/G/B/C, uint16_t) değerler tutulur. `OKU_S<n>` veya `OKU_<m>` ile 15 dakikaya kadar herhangi bir aralığın ortalaması alınabilir.
+
+### SD kart
+SD kart takılıysa cihaz:
+- Önyüklemede `config.json` okur (derleme zamanı sabitlerini geçersiz kılar).
+- `/picolor_data.csv` oluşturur; `SD_AKTAR` veya otomatik kayıt tetiklendiğinde satır ekler.
+
+CSV sütunları: `timestamp_ms, raw_r, raw_g, raw_b, raw_c, proc_r, proc_g, proc_b, lux, color_temp_k, wR, wG, wB, wL, state, mode`
+
+İsteğe bağlı kullanıcı komut geçmişi: `/user_log.csv` — `timestamp, username, client_type, command`. WiFi şifreleri `***` olarak maskelenir.
