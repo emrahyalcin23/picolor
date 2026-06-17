@@ -364,7 +364,7 @@ void appendUserLog(const String& username, const char* clientType, const String&
  * TCP/BLE: satıra ";user=<currentUsername>" eklenir — geriye uyumlu.
  */
 void broadcastLine(const String& line) {
-    Serial.println(line);
+    if (Serial) Serial.println(line);
     String wirelessLine = line + ";user=" + currentUsername;
     for (int i = 0; i < MAX_TCP_CLIENTS; i++) {
         if (tcpClients[i] && tcpClients[i].connected())
