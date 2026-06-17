@@ -4,11 +4,15 @@ PiColor Device Test Suite
 Bağlantı: --port (COM/Serial) | --ip (WiFi TCP) | --ble (Bluetooth)
 
 Kullanım:
-    python picolor_test.py --port /dev/ttyUSB0            # Sadece Serial
-    python picolor_test.py --ip 192.168.42.1              # Sadece WiFi
-    python picolor_test.py --ble-addr AA:BB:CC:DD:EE:FF   # Sadece BLE
-    python picolor_test.py --port /dev/ttyUSB0 --ip 192.168.42.1 --ble-addr ...
-    python picolor_test.py --no-serial --no-ble           # Sadece WiFi
+    python picolor_test.py --all --port /dev/ttyUSB0          # Tüm kanallar (IP otomatik)
+    python picolor_test.py --port /dev/ttyUSB0                # Sadece Serial
+    python picolor_test.py --ip 192.168.42.1                  # Sadece WiFi (IP elle)
+    python picolor_test.py --ble-addr AA:BB:CC:DD:EE:FF       # Sadece BLE
+    python picolor_test.py --no-serial --no-ble               # Sadece WiFi
+    python picolor_test.py --all --port COM3 --verbose        # Tüm kanallar, ayrıntılı
+
+  --all ile Serial önce bağlanır; --ip verilmediyse WiFi IP'si DURUM/WIFI_BILGI
+  yanıtından otomatik çekilir, ardından WiFi ve BLE testleri çalışır.
 
 Gereksinimler:
     pip install pyserial bleak
@@ -86,6 +90,7 @@ DUAL_RE = re.compile(r"^\d+;6;\d+;\d+;\d+;\d+;\d+;-?\d+(\.\d+)?;-?\d+(\.\d+)?;-?
 
 IDENTITY_RE = re.compile(r"^IDENTITY=PICOLOR_v\d+\.\d+\.\d+")
 VERSION_RE  = re.compile(r"^VERSION=v\d+\.\d+\.\d+")
+IP_RE       = re.compile(r'\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b')
 
 
 def is_std(line: str)  -> bool: return bool(STD_RE.match(line))
@@ -285,6 +290,37 @@ def flush(t):
     t.send("OKU_STOP")
     time.sleep(0.3)
     t.read_until(timeout=0.5)
+
+
+def ip_from_durum(t) -> Optional[str]:
+    """WIFI_BILGI ve DURUM yanıtlarından cihazın AP veya STA IP adresini çeker."""
+    all_lines: list[str] = []
+    for komut in ("WIFI_BILGI", "DURUM"):
+        all_lines.extend(cmd(t, komut, timeout=4))
+
+    # 1. "AP" + "IP" içeren satırı önceliklendir
+    for line in all_lines:
+        if re.search(r'\bap\b', line, re.IGNORECASE) and re.search(r'\bip\b', line, re.IGNORECASE):
+            m = IP_RE.search(line)
+            if m and not m.group(1).startswith(("0.", "127.")):
+                return m.group(1)
+
+    # 2. "STA" + "IP" içeren satır
+    for line in all_lines:
+        if re.search(r'\bsta\b', line, re.IGNORECASE) and re.search(r'\bip\b', line, re.IGNORECASE):
+            m = IP_RE.search(line)
+            if m and not m.group(1).startswith(("0.", "127.")):
+                return m.group(1)
+
+    # 3. Herhangi bir satırdaki geçerli özel (private) IPv4
+    for line in all_lines:
+        m = IP_RE.search(line)
+        if m:
+            ip = m.group(1)
+            if not ip.startswith(("0.", "127.", "255.")):
+                return ip
+
+    return None
 
 
 # ────────────────────────────── Test fonksiyonları ────────────────────
@@ -747,18 +783,26 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Örnekler:
-  python picolor_test.py --port /dev/ttyUSB0
-  python picolor_test.py --ip 192.168.42.1 --tcp-port 8266
-  python picolor_test.py --ble-addr AA:BB:CC:DD:EE:FF
-  python picolor_test.py --port COM3 --ip 192.168.42.1 --no-ble --verbose
-  python picolor_test.py --no-serial --no-wifi --ble-addr AA:BB:CC:DD:EE:FF
+  python picolor_test.py --all --port /dev/ttyUSB0            # Tüm kanallar, IP otomatik
+  python picolor_test.py --all --port COM3 --verbose          # Tüm kanallar, ayrıntılı
+  python picolor_test.py --port /dev/ttyUSB0                  # Sadece Serial
+  python picolor_test.py --ip 192.168.42.1 --tcp-port 8266    # Sadece WiFi (IP elle)
+  python picolor_test.py --ble-addr AA:BB:CC:DD:EE:FF         # Sadece BLE
+  python picolor_test.py --no-serial --no-ble                 # Sadece WiFi
   python picolor_test.py --ip 192.168.42.1 --groups temel okuma format
         """
     )
+    p.add_argument("--all",       action="store_true",
+                   help="Tüm kanalları sırasıyla test et: Serial → WiFi → BLE "
+                        "(WiFi IP'si --ip verilmediyse DURUM'dan otomatik çekilir)")
     p.add_argument("--port",      help="Seri port (ör. /dev/ttyUSB0 veya COM3)")
-    p.add_argument("--ip",        default=DEFAULT_AP_IP,    help=f"Cihaz IP (varsayılan: {DEFAULT_AP_IP})")
-    p.add_argument("--tcp-port",  type=int, default=DEFAULT_TCP_PORT, help=f"TCP port (varsayılan: {DEFAULT_TCP_PORT})")
-    p.add_argument("--ble",       default=DEFAULT_BLE_NAME, help=f"BLE cihaz adı (varsayılan: {DEFAULT_BLE_NAME})")
+    p.add_argument("--ip",        default=None,
+                   help=f"Cihaz IP adresi — verilmezse DURUM/WIFI_BILGI yanıtından otomatik keşfedilir "
+                        f"(varsayılan: {DEFAULT_AP_IP})")
+    p.add_argument("--tcp-port",  type=int, default=DEFAULT_TCP_PORT,
+                   help=f"TCP port (varsayılan: {DEFAULT_TCP_PORT})")
+    p.add_argument("--ble",       default=DEFAULT_BLE_NAME,
+                   help=f"BLE cihaz adı (varsayılan: {DEFAULT_BLE_NAME})")
     p.add_argument("--ble-addr",  help="BLE MAC adresi (taramayı atlar)")
     p.add_argument("--no-serial", action="store_true", help="Serial testi atla")
     p.add_argument("--no-wifi",   action="store_true", help="WiFi testi atla")
@@ -768,15 +812,28 @@ def main():
                    help="Belirli grupları çalıştır: temel mod okuma format kalibrasyon sistem kalite")
     args = p.parse_args()
 
+    # --all: tüm kanalları etkinleştir (--no-xxx'leri geçersiz kıl)
+    if args.all:
+        do_serial = True
+        do_wifi   = True
+        do_ble    = True
+    else:
+        do_serial = not args.no_serial
+        do_wifi   = not args.no_wifi
+        do_ble    = not args.no_ble
+
     print(f"\nPiColor Cihaz Test Paketi")
     print(f"Tarih: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    if args.all:
+        print("Mod  : --all  (Serial → WiFi → BLE)")
     if args.groups:
         print(f"Gruplar: {', '.join(args.groups)}")
 
-    suites = []
+    suites        = []
+    discovered_ip: Optional[str] = None
 
     # ── Serial ──────────────────────────────────────────────────────
-    if not args.no_serial:
+    if do_serial:
         if not HAS_SERIAL:
             print("\n[SERIAL] pyserial kurulu değil → pip install pyserial")
         elif not args.port:
@@ -784,30 +841,44 @@ def main():
         else:
             print(f"\n[SERIAL] Bağlanıyor: {args.port} @ {BAUD_RATE} baud ...")
             try:
-                t = SerialTransport(args.port)
-                t.connect()
+                ser = SerialTransport(args.port)
+                ser.connect()
                 print("[SERIAL] Bağlandı.")
-                suite = run_suite(t, f"Serial ({args.port})", args.verbose, args.groups or [])
+
+                # --ip verilmediyse WiFi IP'sini DURUM/WIFI_BILGI'dan otomatik çek
+                if args.ip is None:
+                    print("[SERIAL] IP keşfi: WIFI_BILGI / DURUM sorgulanıyor ...")
+                    discovered_ip = ip_from_durum(ser)
+                    if discovered_ip:
+                        print(f"[SERIAL] Cihaz IP keşfedildi: {discovered_ip}")
+                    else:
+                        print(f"[SERIAL] IP yanıtta bulunamadı, varsayılan kullanılacak: {DEFAULT_AP_IP}")
+
+                suite = run_suite(ser, f"Serial ({args.port})", args.verbose, args.groups or [])
                 suites.append(suite)
-                t.close()
+                ser.close()
             except Exception as e:
                 print(f"[SERIAL] Bağlantı hatası: {e}")
 
+    # Kullanılacak WiFi IP'yi belirle (öncelik: --ip > keşfedilen > varsayılan)
+    wifi_ip = args.ip or discovered_ip or DEFAULT_AP_IP
+
     # ── WiFi TCP ────────────────────────────────────────────────────
-    if not args.no_wifi:
-        print(f"\n[WiFi] Bağlanıyor: {args.ip}:{args.tcp_port} ...")
+    if do_wifi:
+        kaynak = "(--ip)" if args.ip else ("(DURUM'dan)" if discovered_ip else "(varsayılan)")
+        print(f"\n[WiFi] Bağlanıyor: {wifi_ip}:{args.tcp_port} {kaynak} ...")
         try:
-            t = TcpTransport(args.ip, args.tcp_port)
+            t = TcpTransport(wifi_ip, args.tcp_port)
             t.connect()
             print("[WiFi] Bağlandı.")
-            suite = run_suite(t, f"WiFi TCP ({args.ip}:{args.tcp_port})", args.verbose, args.groups or [])
+            suite = run_suite(t, f"WiFi TCP ({wifi_ip}:{args.tcp_port})", args.verbose, args.groups or [])
             suites.append(suite)
             t.close()
         except Exception as e:
             print(f"[WiFi] Bağlantı hatası: {e}")
 
     # ── BLE ─────────────────────────────────────────────────────────
-    if not args.no_ble:
+    if do_ble:
         if not HAS_BLE:
             print("\n[BLE] bleak kurulu değil → pip install bleak")
         else:
