@@ -2326,8 +2326,8 @@ static void _dbg(int n) {
 }
 
 void setup() {
-    // ADIM 1 — setup() başladı. Hiçbir kütüphane çağrısı yok henüz.
-    _dbg(1);
+    // ADIM 1 — setup() başladı. 5 blink = kesinlikle bizim kodum, sensör değil.
+    _dbg(5);
 
     // TCS LED (aktif-LOW) başlangıçta kapalı
     pinMode(TCS_LED_PIN, OUTPUT);
@@ -2337,13 +2337,14 @@ void setup() {
     Wire.setSDA(4);
     Wire.setSCL(5);
     Wire.begin();
+    _dbg(2); // ADIM 2 — Wire.begin() tamam, tcs.begin() çağrılacak
 
     if (!tcs.begin()) {
-        printErrorMessage(calibMode, "SENSOR_NOT_FOUND");
+        // printErrorMessage kaldırıldı — serialReady=false dönemde Serial yok
     } else {
-        printStatusMessage(calibMode, "SENSOR_TCS34725_OK");
+        // printStatusMessage kaldırıldı
     }
-    _dbg(2); // ADIM 2 — I2C + TCS tamam
+    _dbg(3); // ADIM 3 — tcs.begin() tamam
 
     // NeoPixel
     strip.begin();
