@@ -108,11 +108,7 @@
 
 #include <ArduinoJson.h>
 
-// Derleme zamanı kontrol: Tools > USB Stack = "Adafruit TinyUSB" seçili değilse hata ver.
-// Pico SDK USB stack setup()'tan önce USB host bekler — charger'da sonsuza dek bloke olur.
-#ifndef USE_TINYUSB
-  #error "Tools > USB Stack = 'Adafruit TinyUSB' seçmelisiniz! Pico SDK stack charger'da calismaz."
-#endif
+// USB Stack notu: charger'da çalışmıyorsa Tools > USB Stack = "No USB" seçin.
 
 // ============================================================
 // KÜTÜPHANELER
@@ -2315,16 +2311,30 @@ void appendUserLog(const String& username, const char* clientType, const String&
 // ============================================================
 
 // DEBUG: Global constructor — main()'den ve initVariant()'tan ÖNCE çalışır.
-// 7 blink görünürse: global constructor çalışıyor ama main() sonrası bloke.
-// Hiç blink yoksa: sorun daha erken (SDK init veya öncesi).
+// RP2040 doğrudan register erişimi — hiç Arduino/SDK fonksiyonu yok, yield() yok.
+// 7 blink görünürse: global constructor çalışıyor, delay()/yield() sorunluydu.
+// Hiç blink yoksa: sorun daha erken (SDK runtime_init, USB init veya öncesi).
 struct _EarlyProbe {
     _EarlyProbe() {
-        pinMode(15, OUTPUT);
+        // IO_BANK0: GPIO15 CTRL — FUNCSEL=5 (SIO)
+        volatile uint32_t* gpio15_ctrl = (volatile uint32_t*)0x4001407C;
+        // SIO register'ları
+        volatile uint32_t* sio_out_set = (volatile uint32_t*)0xD0000014;
+        volatile uint32_t* sio_out_clr = (volatile uint32_t*)0xD0000018;
+        volatile uint32_t* sio_oe_set  = (volatile uint32_t*)0xD0000024;
+        // TIMER TIMELR — 1 MHz, reset'ten itibaren sayar, hiç init gerekmez
+        volatile uint32_t* timer_lr    = (volatile uint32_t*)0x4005400C;
+
+        *gpio15_ctrl = 5;          // GPIO15 = SIO fonksiyonu
+        *sio_oe_set  = (1u << 15); // GPIO15 = çıkış
+
         for (int i = 0; i < 7; i++) {
-            digitalWrite(15, HIGH); delay(200);
-            digitalWrite(15, LOW);  delay(200);
+            *sio_out_set = (1u << 15);                                    // HIGH → LED KAPALI (aktif-LOW)
+            uint32_t t0 = *timer_lr; while (*timer_lr - t0 < 200000u) {} // 200 ms
+            *sio_out_clr = (1u << 15);                                    // LOW  → LED AÇIK
+            t0 = *timer_lr; while (*timer_lr - t0 < 200000u) {}          // 200 ms
         }
-        delay(1000);
+        uint32_t t0 = *timer_lr; while (*timer_lr - t0 < 1000000u) {}    // 1 s bekleme
     }
 } _earlyProbe;
 
