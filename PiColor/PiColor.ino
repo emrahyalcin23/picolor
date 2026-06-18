@@ -2305,17 +2305,23 @@ void appendUserLog(const String& username, const char* clientType, const String&
 // ========== SETUP ==========================================
 // ============================================================
 
+// DEBUG: TCS LED'i (GPIO 15, aktif-LOW) n kez yakıp söndür.
+// Her adımda nerede takıldığını bulmak için kullanılıyor.
+static void dbgBlink(int n) {
+    for (int i = 0; i < n; i++) {
+        digitalWrite(TCS_LED_PIN, HIGH); delay(200);
+        digitalWrite(TCS_LED_PIN, LOW);  delay(200);
+    }
+}
+
 void setup() {
-    // Serial.begin() starts TinyUSB (USB hardware). When no USB host is present
-    // (e.g. 5V charger), TinyUSB enters a continuous attach-retry loop that fires
-    // USB IRQs at high frequency. These IRQs interfere with the CYW43 SPI init,
-    // causing WiFi.softAP() to fail and the while(softAPIP()==0) loop to spin
-    // forever. Fix: initialize CYW43 (WiFi/BLE) BEFORE starting USB Serial so
-    // the chip comes up cleanly regardless of USB host presence.
+    Serial.begin(115200);
 
     // TCS LED (aktif-LOW) başlangıçta kapalı
     pinMode(TCS_LED_PIN, OUTPUT);
     digitalWrite(TCS_LED_PIN, LOW);
+
+    dbgBlink(1); // 1 yanıp sönme = Serial.begin() geçildi
 
     // I2C — RP2040 üzerinde SDA=4, SCL=5
     Wire.setSDA(4);
@@ -2327,6 +2333,8 @@ void setup() {
     } else {
         printStatusMessage(calibMode, "SENSOR_TCS34725_OK");
     }
+
+    dbgBlink(2); // 2 = tcs.begin() geçildi
 
     // NeoPixel
     strip.begin();
@@ -2342,8 +2350,12 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(ENC_CLK_PIN), encoderISR, FALLING);
     printStatusMessage(calibMode, "ENCODER_IRQ_OK");
 
+    dbgBlink(3); // 3 = encoder ISR takıldı
+
     // SD kart
     initSDCard();
+
+    dbgBlink(4); // 4 = initSDCard() geçildi
 
     // EEPROM önce yükle (düşük öncelik)
     EEPROM.begin(EEPROM_SIZE);
@@ -2352,11 +2364,16 @@ void setup() {
     // JSON config EEPROM'u geçersiz kılar (yüksek öncelik)
     loadJsonConfig();
 
-    // CYW43 (WiFi + BLE) USB Serial'dan ÖNCE başlatılmalı
+    dbgBlink(5); // 5 = EEPROM + JSON config geçildi
+
     setupWiFi();
+
+    dbgBlink(6); // 6 = setupWiFi() geçildi
+
     setupBLE();
 
-    // USB Serial: CYW43 kararlı olduktan sonra başlat
+    dbgBlink(7); // 7 = setupBLE() geçildi
+
     Serial.begin(115200);
 
     // İlk örnekleme ve LED güncelleme
