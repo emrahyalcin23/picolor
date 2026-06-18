@@ -108,6 +108,12 @@
 
 #include <ArduinoJson.h>
 
+// Derleme zamanı kontrol: Tools > USB Stack = "Adafruit TinyUSB" seçili değilse hata ver.
+// Pico SDK USB stack setup()'tan önce USB host bekler — charger'da sonsuza dek bloke olur.
+#ifndef USE_TINYUSB
+  #error "Tools > USB Stack = 'Adafruit TinyUSB' seçmelisiniz! Pico SDK stack charger'da calismaz."
+#endif
+
 // ============================================================
 // KÜTÜPHANELER
 // ============================================================
