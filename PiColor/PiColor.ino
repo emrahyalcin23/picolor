@@ -2305,24 +2305,10 @@ void appendUserLog(const String& username, const char* clientType, const String&
 // ========== SETUP ==========================================
 // ============================================================
 
-// DEBUG: TCS LED'i (GPIO 15, aktif-LOW) n kez yakıp söndür.
-// Her adımda nerede takıldığını bulmak için kullanılıyor.
-static void dbgBlink(int n) {
-    delay(1500); // gruplar arası uzun duraklama — sayımı kolaylaştırır
-    for (int i = 0; i < n; i++) {
-        digitalWrite(TCS_LED_PIN, HIGH); delay(300);
-        digitalWrite(TCS_LED_PIN, LOW);  delay(300);
-    }
-}
-
 void setup() {
-    Serial.begin(115200);
-
     // TCS LED (aktif-LOW) başlangıçta kapalı
     pinMode(TCS_LED_PIN, OUTPUT);
     digitalWrite(TCS_LED_PIN, LOW);
-
-    dbgBlink(1); // 1 yanıp sönme = Serial.begin() geçildi
 
     // I2C — RP2040 üzerinde SDA=4, SCL=5
     Wire.setSDA(4);
@@ -2334,8 +2320,6 @@ void setup() {
     } else {
         printStatusMessage(calibMode, "SENSOR_TCS34725_OK");
     }
-
-    dbgBlink(2); // 2 = tcs.begin() geçildi
 
     // NeoPixel
     strip.begin();
@@ -2351,12 +2335,8 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(ENC_CLK_PIN), encoderISR, FALLING);
     printStatusMessage(calibMode, "ENCODER_IRQ_OK");
 
-    dbgBlink(3); // 3 = encoder ISR takıldı
-
     // SD kart
     initSDCard();
-
-    dbgBlink(4); // 4 = initSDCard() geçildi
 
     // EEPROM önce yükle (düşük öncelik)
     EEPROM.begin(EEPROM_SIZE);
@@ -2365,17 +2345,20 @@ void setup() {
     // JSON config EEPROM'u geçersiz kılar (yüksek öncelik)
     loadJsonConfig();
 
-    dbgBlink(5); // 5 = EEPROM + JSON config geçildi
-
     setupWiFi();
-
-    dbgBlink(6); // 6 = setupWiFi() geçildi
-
     setupBLE();
 
-    dbgBlink(7); // 7 = setupBLE() geçildi
-
+    // Serial.begin() MUST come after WiFi/BLE. On arduino-pico the USB CDC
+    // stack blocks inside Serial.begin() until a USB host enumerates the
+    // device. With no host (5V charger) that wait is infinite, so setup()
+    // never completes and WiFi/encoder never start.
+    // Moving it here means WiFi/BLE are already up before USB is touched.
+    // The 3-second timeout prevents blocking when running from a charger.
     Serial.begin(115200);
+    {
+        uint32_t t = millis();
+        while (!Serial && millis() - t < 3000) {}
+    }
 
     // İlk örnekleme ve LED güncelleme
     lastSampleTime  = millis();
