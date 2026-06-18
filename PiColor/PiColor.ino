@@ -2314,6 +2314,20 @@ void appendUserLog(const String& username, const char* clientType, const String&
 // ========== SETUP ==========================================
 // ============================================================
 
+// DEBUG: Global constructor — main()'den ve initVariant()'tan ÖNCE çalışır.
+// 7 blink görünürse: global constructor çalışıyor ama main() sonrası bloke.
+// Hiç blink yoksa: sorun daha erken (SDK init veya öncesi).
+struct _EarlyProbe {
+    _EarlyProbe() {
+        pinMode(15, OUTPUT);
+        for (int i = 0; i < 7; i++) {
+            digitalWrite(15, HIGH); delay(200);
+            digitalWrite(15, LOW);  delay(200);
+        }
+        delay(1000);
+    }
+} _earlyProbe;
+
 // DEBUG: TCS LED (GPIO 15) ile ham GPIO blink. Hiç kütüphane yok.
 // N blink = o adıma kadar gelindi. Son görünen N = sorun N+1. adımda.
 static void _dbg(int n) {
@@ -2324,11 +2338,6 @@ static void _dbg(int n) {
     }
     delay(800);
 }
-
-// arduino-pico bu fonksiyonu weak tanımlar. Kendi boş versiyonumuzu yazarak
-// framework'ün charger'da bloklayan pre-setup() kodunu (USB host bekleme,
-// CYW43 erken init) devre dışı bırakıyoruz.
-void initVariant() {}
 
 void setup() {
     // ADIM 1 — setup() başladı. 5 blink = kesinlikle bizim kodum, sensör değil.
