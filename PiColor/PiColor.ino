@@ -314,6 +314,7 @@ static char   bleRxBuf[256];
 static int    bleRxLen       = 0;
 static hci_con_handle_t bleCentralHandle = HCI_CON_HANDLE_INVALID;
 static bool   bleHasPendingCmd  = false;
+static bool   serialReady    = false; // Serial.begin() çağrılana kadar Serial'a dokunma
 static String blePendingCmd;
 static String blePendingUser;
 
@@ -364,9 +365,9 @@ void appendUserLog(const String& username, const char* clientType, const String&
  * TCP/BLE: satıra ";user=<currentUsername>" eklenir — geriye uyumlu.
  */
 void broadcastLine(const String& line) {
-    // Guard against blocking: when no USB host the CDC TX buffer never drains.
-    // availableForWrite() correctly returns 0 when full regardless of arduino-pico version.
-    if (Serial.availableForWrite() > (int)line.length() + 2) {
+    // serialReady flag ensures we never touch Serial before Serial.begin().
+    // With TinyUSB, availableForWrite() can block if called before begin().
+    if (serialReady && Serial.availableForWrite() > (int)line.length() + 2) {
         Serial.println(line);
     }
     String wirelessLine = line + ";user=" + currentUsername;
@@ -2383,6 +2384,7 @@ void setup() {
         uint32_t t = millis();
         while (!Serial && millis() - t < 3000) {}
     }
+    serialReady = true;
     _dbg(9); // ADIM 9 — Serial.begin() tamam
 
     // İlk örnekleme ve LED güncelleme
