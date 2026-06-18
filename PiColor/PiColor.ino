@@ -2325,6 +2325,11 @@ static void _dbg(int n) {
     delay(800);
 }
 
+// arduino-pico bu fonksiyonu weak tanımlar. Kendi boş versiyonumuzu yazarak
+// framework'ün charger'da bloklayan pre-setup() kodunu (USB host bekleme,
+// CYW43 erken init) devre dışı bırakıyoruz.
+void initVariant() {}
+
 void setup() {
     // ADIM 1 — setup() başladı. 5 blink = kesinlikle bizim kodum, sensör değil.
     _dbg(5);
