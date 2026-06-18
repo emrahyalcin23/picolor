@@ -2306,7 +2306,12 @@ void appendUserLog(const String& username, const char* clientType, const String&
 // ============================================================
 
 void setup() {
-    Serial.begin(115200);
+    // Serial.begin() starts TinyUSB (USB hardware). When no USB host is present
+    // (e.g. 5V charger), TinyUSB enters a continuous attach-retry loop that fires
+    // USB IRQs at high frequency. These IRQs interfere with the CYW43 SPI init,
+    // causing WiFi.softAP() to fail and the while(softAPIP()==0) loop to spin
+    // forever. Fix: initialize CYW43 (WiFi/BLE) BEFORE starting USB Serial so
+    // the chip comes up cleanly regardless of USB host presence.
 
     // TCS LED (aktif-LOW) başlangıçta kapalı
     pinMode(TCS_LED_PIN, OUTPUT);
@@ -2347,8 +2352,12 @@ void setup() {
     // JSON config EEPROM'u geçersiz kılar (yüksek öncelik)
     loadJsonConfig();
 
+    // CYW43 (WiFi + BLE) USB Serial'dan ÖNCE başlatılmalı
     setupWiFi();
     setupBLE();
+
+    // USB Serial: CYW43 kararlı olduktan sonra başlat
+    Serial.begin(115200);
 
     // İlk örnekleme ve LED güncelleme
     lastSampleTime  = millis();
