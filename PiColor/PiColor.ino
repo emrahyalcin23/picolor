@@ -2316,15 +2316,18 @@ void appendUserLog(const String& username, const char* clientType, const String&
 // Hiç blink yoksa: sorun daha erken (SDK runtime_init, USB init veya öncesi).
 struct _EarlyProbe {
     _EarlyProbe() {
-        // Pico SDK GPIO + timer — RP2040 ve RP2350 için doğru adresler otomatik seçilir.
-        // busy_wait_ms() yield()/TinyUSB çağırmaz → global constructor'da güvenli.
+        // Pico SDK GPIO — RP2040 ve RP2350 için doğru GPIO çağrıları.
+        // Timer/yield yok — saf CPU spin döngüsü.
+        // RP2350 @150 MHz: ~6M iter ≈ 200 ms. Yavaş saatte daha uzun ama görünür.
         gpio_init(15);
         gpio_set_dir(15, GPIO_OUT);
-        for (int i = 0; i < 7; i++) {
-            gpio_put(15, 1); busy_wait_ms(200); // HIGH → LED KAPALI (aktif-LOW)
-            gpio_put(15, 0); busy_wait_ms(200); // LOW  → LED AÇIK
+        for (int b = 0; b < 7; b++) {
+            gpio_put(15, 1);                                    // HIGH → LED KAPALI (aktif-LOW)
+            for (volatile uint32_t i = 0; i < 6000000u; i++) {}
+            gpio_put(15, 0);                                    // LOW  → LED AÇIK
+            for (volatile uint32_t i = 0; i < 6000000u; i++) {}
         }
-        busy_wait_ms(1000);
+        for (volatile uint32_t i = 0; i < 30000000u; i++) {}  // ~1 s bekleme
     }
 } _earlyProbe;
 
