@@ -2096,15 +2096,10 @@ void clearWiFiCredentials() {
 }
 
 void setupWiFi() {
-    // DEBUG renk: setupWiFi() içine girdi
-    strip.setPixelColor(0, strip.Color(30, 10, 0)); strip.show(); delay(800); // KOYU TURUNCU
-
     // AP başlat — CYW43 default IP 192.168.4.1 kullanır (softAPConfig arduino-pico 5.6.0'da çalışmıyor)
     WiFi.softAP(cfgWifiApSSID, cfgWifiApPass);
-    strip.setPixelColor(0, strip.Color(50, 50, 50)); strip.show(); delay(800); // BEYAZ — softAP() çağrıldı
 
     { uint32_t _t = millis(); while (WiFi.softAPIP() == IPAddress(0, 0, 0, 0) && millis() - _t < 15000) delay(10); }
-    strip.setPixelColor(0, strip.Color(0, 30, 10)); strip.show(); delay(800); // KOYU YEŞİL — IP döngüsü bitti
 
     // STA: AP tamamen hazır olduktan sonra başlat — WiFi.begin() AP'yi bozabilir
     // (arduino-pico 5.6.0'da softAP + WiFi.begin() çakışma sorunu)
@@ -2312,19 +2307,20 @@ void appendUserLog(const String& username, const char* clientType, const String&
 // ========== SETUP ==========================================
 // ============================================================
 
-// DEBUG: Her adımda NeoPixel pixel-0'ı farklı renge boyar ve 1.5s bekler.
-// Şarj başlığında cihaz takıldığında SON renk neyse o adım sorunu gösterir.
-// Test bittikten sonra bu fonksiyon ve tüm _dbg() çağrıları silinecek.
-static void _dbg(uint8_t r, uint8_t g, uint8_t b) {
-    strip.setPixelColor(0, strip.Color(r, g, b));
-    strip.show();
-    delay(1500);
+// DEBUG: TCS LED (GPIO 15) ile ham GPIO blink. Hiç kütüphane yok.
+// N blink = o adıma kadar gelindi. Son görünen N = sorun N+1. adımda.
+static void _dbg(int n) {
+    pinMode(15, OUTPUT);
+    for (int i = 0; i < n; i++) {
+        digitalWrite(15, HIGH); delay(250);
+        digitalWrite(15, LOW);  delay(250);
+    }
+    delay(800);
 }
 
 void setup() {
-    // DEBUG — NeoPixel'i erken başlat, ilk rengi hemen göster
-    strip.begin(); strip.show();
-    _dbg(50, 0, 0); // KIRMIZI — setup() başladı
+    // ADIM 1 — setup() başladı. Hiçbir kütüphane çağrısı yok henüz.
+    _dbg(1);
 
     // TCS LED (aktif-LOW) başlangıçta kapalı
     pinMode(TCS_LED_PIN, OUTPUT);
@@ -2340,12 +2336,13 @@ void setup() {
     } else {
         printStatusMessage(calibMode, "SENSOR_TCS34725_OK");
     }
-    _dbg(0, 50, 0); // YEŞİL — I2C + TCS tamam
+    _dbg(2); // ADIM 2 — I2C + TCS tamam
 
     // NeoPixel
     strip.begin();
     strip.show();
     printStatusMessage(calibMode, "NEOPIXEL_OK");
+    _dbg(3); // ADIM 3 — strip.begin() + strip.show() tamam
 
     // Encoder pinleri
     pinMode(ENC_CLK_PIN, INPUT_PULLUP);
@@ -2355,11 +2352,11 @@ void setup() {
     // CLK düşen kenarda kesme — bu satır kesinlikle kaldırılmamalı
     attachInterrupt(digitalPinToInterrupt(ENC_CLK_PIN), encoderISR, FALLING);
     printStatusMessage(calibMode, "ENCODER_IRQ_OK");
-    _dbg(0, 0, 50); // MAVİ — encoder IRQ tamam
+    _dbg(4); // ADIM 4 — encoder IRQ tamam
 
     // SD kart
     initSDCard();
-    _dbg(50, 50, 0); // SARI — SD kart tamamlandı
+    _dbg(5); // ADIM 5 — SD kart tamamlandı
 
     // EEPROM önce yükle (düşük öncelik)
     EEPROM.begin(EEPROM_SIZE);
@@ -2367,13 +2364,13 @@ void setup() {
 
     // JSON config EEPROM'u geçersiz kılar (yüksek öncelik)
     loadJsonConfig();
-    _dbg(0, 50, 50); // CYAN — config yüklendi, setupWiFi() çağrılacak
+    _dbg(6); // ADIM 6 — config yüklendi, setupWiFi() çağrılacak
 
     setupWiFi();
-    _dbg(50, 0, 50); // MOR — setupWiFi() döndü, setupBLE() çağrılacak
+    _dbg(7); // ADIM 7 — setupWiFi() döndü
 
     setupBLE();
-    _dbg(50, 25, 0); // TURUNCU — setupBLE() döndü
+    _dbg(8); // ADIM 8 — setupBLE() döndü
 
     // Serial.begin() MUST come after WiFi/BLE. On arduino-pico the USB CDC
     // stack blocks inside Serial.begin() until a USB host enumerates the
@@ -2386,7 +2383,7 @@ void setup() {
         uint32_t t = millis();
         while (!Serial && millis() - t < 3000) {}
     }
-    _dbg(0, 100, 0); // PARLAK YEŞİL — setup() TAMAMEN BİTTİ
+    _dbg(9); // ADIM 9 — Serial.begin() tamam
 
     // İlk örnekleme ve LED güncelleme
     lastSampleTime  = millis();
@@ -2395,6 +2392,7 @@ void setup() {
     updateLEDs();
 
     printStatusMessage(calibMode, "SYSTEM_STARTED");
+    _dbg(10); // ADIM 10 — setup() TAMAMEN BİTTİ
 }
 
 // ============================================================
