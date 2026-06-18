@@ -2100,8 +2100,9 @@ void setupWiFi() {
     WiFi.softAP(cfgWifiApSSID, cfgWifiApPass);
     { uint32_t _t = millis(); while (WiFi.softAPIP() == IPAddress(0, 0, 0, 0) && millis() - _t < 15000) delay(10); }
 
-    // STA: otomatik bağlantı — cfgWifiStaAuto=true ve kimlik bilgisi mevcutsa
-    if (cfgWifiStaAuto && strlen(wifiStaSSID) > 0) {
+    // STA: AP tamamen hazır olduktan sonra başlat — WiFi.begin() AP'yi bozabilir
+    // (arduino-pico 5.6.0'da softAP + WiFi.begin() çakışma sorunu)
+    if (cfgWifiStaAuto && strlen(wifiStaSSID) > 0 && WiFi.softAPIP() != IPAddress(0, 0, 0, 0)) {
         WiFi.begin(wifiStaSSID, wifiStaPass);
         printStatusMessage(calibMode, "WIFI_STA_CONNECTING");
     }
