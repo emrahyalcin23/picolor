@@ -2316,25 +2316,15 @@ void appendUserLog(const String& username, const char* clientType, const String&
 // Hiç blink yoksa: sorun daha erken (SDK runtime_init, USB init veya öncesi).
 struct _EarlyProbe {
     _EarlyProbe() {
-        // IO_BANK0: GPIO15 CTRL — FUNCSEL=5 (SIO)
-        volatile uint32_t* gpio15_ctrl = (volatile uint32_t*)0x4001407C;
-        // SIO register'ları
-        volatile uint32_t* sio_out_set = (volatile uint32_t*)0xD0000014;
-        volatile uint32_t* sio_out_clr = (volatile uint32_t*)0xD0000018;
-        volatile uint32_t* sio_oe_set  = (volatile uint32_t*)0xD0000024;
-        // TIMER TIMELR — 1 MHz, reset'ten itibaren sayar, hiç init gerekmez
-        volatile uint32_t* timer_lr    = (volatile uint32_t*)0x4005400C;
-
-        *gpio15_ctrl = 5;          // GPIO15 = SIO fonksiyonu
-        *sio_oe_set  = (1u << 15); // GPIO15 = çıkış
-
+        // Pico SDK GPIO + timer — RP2040 ve RP2350 için doğru adresler otomatik seçilir.
+        // busy_wait_ms() yield()/TinyUSB çağırmaz → global constructor'da güvenli.
+        gpio_init(15);
+        gpio_set_dir(15, GPIO_OUT);
         for (int i = 0; i < 7; i++) {
-            *sio_out_set = (1u << 15);                                    // HIGH → LED KAPALI (aktif-LOW)
-            uint32_t t0 = *timer_lr; while (*timer_lr - t0 < 200000u) {} // 200 ms
-            *sio_out_clr = (1u << 15);                                    // LOW  → LED AÇIK
-            t0 = *timer_lr; while (*timer_lr - t0 < 200000u) {}          // 200 ms
+            gpio_put(15, 1); busy_wait_ms(200); // HIGH → LED KAPALI (aktif-LOW)
+            gpio_put(15, 0); busy_wait_ms(200); // LOW  → LED AÇIK
         }
-        uint32_t t0 = *timer_lr; while (*timer_lr - t0 < 1000000u) {}    // 1 s bekleme
+        busy_wait_ms(1000);
     }
 } _earlyProbe;
 
