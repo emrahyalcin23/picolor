@@ -364,7 +364,11 @@ void appendUserLog(const String& username, const char* clientType, const String&
  * TCP/BLE: satıra ";user=<currentUsername>" eklenir — geriye uyumlu.
  */
 void broadcastLine(const String& line) {
-    if (Serial) Serial.println(line);
+    // Guard against blocking: when no USB host the CDC TX buffer never drains.
+    // availableForWrite() correctly returns 0 when full regardless of arduino-pico version.
+    if (Serial.availableForWrite() > (int)line.length() + 2) {
+        Serial.println(line);
+    }
     String wirelessLine = line + ";user=" + currentUsername;
     for (int i = 0; i < MAX_TCP_CLIENTS; i++) {
         if (tcpClients[i] && tcpClients[i].connected())
@@ -1817,7 +1821,9 @@ bool isReadCommand(const String &token) {
  * İki geçişli sıralama (ayar önce, okuma sonra) processCommandLine içinde.
  */
 void handleSerialCommands() {
-    if (Serial.available() == 0) return;
+    // Double-guard: skip if no real USB host to prevent 1-second readStringUntil timeout
+    // from charger D+/D- line noise triggering spurious Serial.available() > 0.
+    if (!Serial || Serial.available() == 0) return;
     String line = Serial.readStringUntil('\n');
     processCommandLine(line, "serial");
 }
