@@ -2308,9 +2308,10 @@ void appendUserLog(const String& username, const char* clientType, const String&
 // DEBUG: TCS LED'i (GPIO 15, aktif-LOW) n kez yakıp söndür.
 // Her adımda nerede takıldığını bulmak için kullanılıyor.
 static void dbgBlink(int n) {
+    delay(1500); // gruplar arası uzun duraklama — sayımı kolaylaştırır
     for (int i = 0; i < n; i++) {
-        digitalWrite(TCS_LED_PIN, HIGH); delay(200);
-        digitalWrite(TCS_LED_PIN, LOW);  delay(200);
+        digitalWrite(TCS_LED_PIN, HIGH); delay(300);
+        digitalWrite(TCS_LED_PIN, LOW);  delay(300);
     }
 }
 
