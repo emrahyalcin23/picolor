@@ -367,11 +367,11 @@ void appendUserLog(const String& username, const char* clientType, const String&
  * TCP/BLE: satıra ";user=<currentUsername>" eklenir — geriye uyumlu.
  */
 void broadcastLine(const String& line) {
-    // serialReady flag ensures we never touch Serial before Serial.begin().
-    // With TinyUSB, availableForWrite() can block if called before begin().
+#if defined(USE_TINYUSB)
     if (serialReady && Serial.availableForWrite() > (int)line.length() + 2) {
         Serial.println(line);
     }
+#endif
     String wirelessLine = line + ";user=" + currentUsername;
     for (int i = 0; i < MAX_TCP_CLIENTS; i++) {
         if (tcpClients[i] && tcpClients[i].connected())
@@ -1341,7 +1341,7 @@ void showSDStatus() {
  */
 void showHelp() {
     printStatusMessage(calibMode, "HELP_REQUESTED");
-
+#if defined(USE_TINYUSB)
     Serial.println("\n=== PICOLOR KOMUTLARI ===");
     Serial.println("KIMSIN                   kimlik");
     Serial.println("VERSIYON / VERSION       firmware surumu");
@@ -1400,6 +1400,7 @@ void showHelp() {
     Serial.println("WIFI_STA_SIFIRLA         EEPROM'daki STA bilgilerini sil");
     Serial.println("WIFI_BILGI               AP ve STA durumunu goster");
     Serial.println("========================\n");
+#endif
 }
 
 void showDurum() {
@@ -1824,11 +1825,11 @@ bool isReadCommand(const String &token) {
  * İki geçişli sıralama (ayar önce, okuma sonra) processCommandLine içinde.
  */
 void handleSerialCommands() {
-    // Double-guard: skip if no real USB host to prevent 1-second readStringUntil timeout
-    // from charger D+/D- line noise triggering spurious Serial.available() > 0.
+#if defined(USE_TINYUSB)
     if (!Serial || Serial.available() == 0) return;
     String line = Serial.readStringUntil('\n');
     processCommandLine(line, "serial");
+#endif
 }
 
 // ============================================================
@@ -2397,18 +2398,14 @@ void setup() {
     setupBLE();
     _dbg(8); // ADIM 8 — setupBLE() döndü
 
-    // Serial.begin() MUST come after WiFi/BLE. On arduino-pico the USB CDC
-    // stack blocks inside Serial.begin() until a USB host enumerates the
-    // device. With no host (5V charger) that wait is infinite, so setup()
-    // never completes and WiFi/encoder never start.
-    // Moving it here means WiFi/BLE are already up before USB is touched.
-    // The 3-second timeout prevents blocking when running from a charger.
+#if defined(USE_TINYUSB)
     Serial.begin(115200);
     {
         uint32_t t = millis();
         while (!Serial && millis() - t < 3000) {}
     }
     serialReady = true;
+#endif
     _dbg(9); // ADIM 9 — Serial.begin() tamam
 
     // İlk örnekleme ve LED güncelleme
