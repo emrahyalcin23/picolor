@@ -12,6 +12,23 @@
  *            destekler; SD yoksa varsayılan değerler geçerlidir.
  * ============================================================
  *
+ * ARDUINO IDE AYARLARI
+ * --------------------
+ *  Board            : Raspberry Pi Pico 2W
+ *  CPU Speed        : 150 MHz (varsayılan)
+ *  Flash Size       : 4MB (no FS) — SD kart kullanıldığı için FS gerekmez
+ *  USB Stack        : No USB   ← ÖNEMLİ: Pico SDK veya TinyUSB seçilirse
+ *                               USB-A dışındaki şarj başlıklarında cihaz
+ *                               başlamayabilir (bkz. SINIRLILIKLAR.md §1)
+ *  IP Stack         : IPv4 Only ← IPv4+IPv6 seçilirse AP+STA çift mod
+ *                               kararsız çalışabilir
+ *  Upload Method    : Default (UF2) — "No USB" modunda COM port görünmez;
+ *                     yüklemek için BOOTSEL basılı tutarak USB tak,
+ *                     RPI-RP2 sürücüsü görününce Sketch > Export Compiled
+ *                     Binary ile .uf2 oluştur ve sürücüye kopyala
+ *  Debug Level      : None (release için)
+ *  Compiler Warnings: None veya Default
+ *
  * DONANIM
  * -------
  *  TCS34725  → I2C  SDA=4  SCL=5
