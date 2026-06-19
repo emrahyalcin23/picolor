@@ -1,6 +1,6 @@
 # PiColor
 
-**PiColor** is a smart ambient light and color analyzer built on the Raspberry Pi Pico (RP2040). It reads RGB and clear-channel data from a TCS34725 sensor, normalizes the results to a 0–100 scale, and streams them over USB Serial, WiFi TCP, and Bluetooth Low Energy simultaneously.
+**PiColor** is a smart ambient light and color analyzer built on the Raspberry Pi Pico 2W (RP2350). It reads RGB and clear-channel data from a TCS34725 sensor, normalizes the results to a 0–100 scale, and streams them over USB Serial, WiFi TCP, and Bluetooth Low Energy simultaneously.
 
 Current firmware: **v0.09.04**
 
@@ -253,7 +253,7 @@ User command history (optional): `/user_log.csv` — `timestamp, username, clien
 
 # PiColor [TÜRKÇE]
 
-**PiColor**, Raspberry Pi Pico (RP2040) üzerine kurulu akıllı bir ortam ışığı ve renk analizörüdür. TCS34725 sensöründen RGB ve clear-kanal verisi okur, sonuçları 0–100 skalasına normalize eder ve USB Serial, WiFi TCP ve Bluetooth Low Energy üzerinden eş zamanlı olarak yayınlar.
+**PiColor**, Raspberry Pi Pico 2W (RP2350) üzerine kurulu akıllı bir ortam ışığı ve renk analizörüdür. TCS34725 sensöründen RGB ve clear-kanal verisi okur, sonuçları 0–100 skalasına normalize eder ve USB Serial, WiFi TCP ve Bluetooth Low Energy üzerinden eş zamanlı olarak yayınlar.
 
 Güncel firmware: **v0.09.04**
 

@@ -295,6 +295,8 @@ static String currentUsername = "serial";
 static char     cfgWifiApSSID[33] = DEFAULT_WIFI_AP_SSID;
 static char     cfgWifiApPass[65] = DEFAULT_WIFI_AP_PASS;
 static bool     cfgWifiStaAuto    = DEFAULT_WIFI_STA_AUTO;
+static bool          staLedConnecting  = false;
+static unsigned long staLedGreenUntil  = 0;
 static bool     loggingEnabled    = DEFAULT_LOGGING;
 static char     cfgLogFile[64]    = DEFAULT_LOG_FILE;
 static uint16_t cfgTcpPort        = DEFAULT_TCP_PORT;
@@ -321,7 +323,7 @@ static String blePendingCmd;
 static String blePendingUser;
 
 // !! EEPROM / FLASH YAZMA LİMİTİ UYARISI !!
-// RP2040 flash belleği yaklaşık 100.000 blok silme döngüsüne sahiptir.
+// RP2350 flash belleği yaklaşık 100.000 blok silme döngüsüne sahiptir.
 // EEPROM yalnızca WIFI_STA_KAYDET komutuyla yazılır (kullanıcı talebi üzerine);
 // önyükleme başına veya döngüsel olarak ASLA yazılmamalıdır.
 // Çalışma zamanı ayarları için SD karttaki config.json kullanılır.
@@ -1143,6 +1145,7 @@ void encoderISR() {
  * Bu mantık d2 ile birebir aynıdır.
  */
 void updateLEDs() {
+    if (staLedConnecting || staLedGreenUntil > 0) return;
     float val = 0.0f;
     if      (currentState == STATE_R) val = wR;
     else if (currentState == STATE_G) val = wG;
@@ -2226,6 +2229,19 @@ void bleSendLine(const String& line) {
 }
 
 void handleWiFiReconnect(unsigned long currentMillis) {
+    // İlk STA bağlantısı LED tespiti — her döngüde hızlı kontrol
+    if (staLedConnecting && WiFi.status() == WL_CONNECTED) {
+        staLedConnecting = false;
+        for (int i = 0; i < NEO_COUNT; i++) strip.setPixelColor(i, strip.Color(0, 40, 0));
+        strip.show();
+        staLedGreenUntil = currentMillis + 1000;
+    }
+    if (staLedGreenUntil > 0 && currentMillis >= staLedGreenUntil) {
+        staLedGreenUntil = 0;
+        updateLEDs();
+    }
+
+    // Periyodik yeniden bağlantı — 30 saniyede bir
     static unsigned long lastSTACheck = 0;
     if (!wifiEnabled || !cfgWifiStaAuto || strlen(wifiStaSSID) == 0) return;
     if (currentMillis - lastSTACheck < 30000UL) return;
@@ -2311,64 +2327,26 @@ void appendUserLog(const String& username, const char* clientType, const String&
 // ========== SETUP ==========================================
 // ============================================================
 
-// DEBUG: Global constructor — main()'den ve initVariant()'tan ÖNCE çalışır.
-// RP2040 doğrudan register erişimi — hiç Arduino/SDK fonksiyonu yok, yield() yok.
-// 7 blink görünürse: global constructor çalışıyor, delay()/yield() sorunluydu.
-// Hiç blink yoksa: sorun daha erken (SDK runtime_init, USB init veya öncesi).
-struct _EarlyProbe {
-    _EarlyProbe() {
-        // Pico SDK GPIO — RP2040 ve RP2350 için doğru GPIO çağrıları.
-        // Timer/yield yok — saf CPU spin döngüsü.
-        // RP2350 @150 MHz: ~6M iter ≈ 200 ms. Yavaş saatte daha uzun ama görünür.
-        gpio_init(15);
-        gpio_set_dir(15, GPIO_OUT);
-        for (int b = 0; b < 7; b++) {
-            gpio_put(15, 1);                                    // HIGH → LED KAPALI (aktif-LOW)
-            for (volatile uint32_t i = 0; i < 6000000u; i++) {}
-            gpio_put(15, 0);                                    // LOW  → LED AÇIK
-            for (volatile uint32_t i = 0; i < 6000000u; i++) {}
-        }
-        for (volatile uint32_t i = 0; i < 30000000u; i++) {}  // ~1 s bekleme
-    }
-} _earlyProbe;
-
-// DEBUG: TCS LED (GPIO 15) ile ham GPIO blink. Hiç kütüphane yok.
-// N blink = o adıma kadar gelindi. Son görünen N = sorun N+1. adımda.
-static void _dbg(int n) {
-    pinMode(15, OUTPUT);
-    for (int i = 0; i < n; i++) {
-        digitalWrite(15, HIGH); delay(250);
-        digitalWrite(15, LOW);  delay(250);
-    }
-    delay(800);
-}
-
 void setup() {
-    // ADIM 1 — setup() başladı. 5 blink = kesinlikle bizim kodum, sensör değil.
-    _dbg(5);
-
     // TCS LED (aktif-LOW) başlangıçta kapalı
     pinMode(TCS_LED_PIN, OUTPUT);
     digitalWrite(TCS_LED_PIN, LOW);
 
-    // I2C — RP2040 üzerinde SDA=4, SCL=5
+    // I2C — RP2350 üzerinde SDA=4, SCL=5
     Wire.setSDA(4);
     Wire.setSCL(5);
     Wire.begin();
-    _dbg(2); // ADIM 2 — Wire.begin() tamam, tcs.begin() çağrılacak
 
     if (!tcs.begin()) {
-        // printErrorMessage kaldırıldı — serialReady=false dönemde Serial yok
+        printErrorMessage(calibMode, "TCS_INIT_FAIL");
     } else {
-        // printStatusMessage kaldırıldı
+        printStatusMessage(calibMode, "TCS_OK");
     }
-    _dbg(3); // ADIM 3 — tcs.begin() tamam
 
     // NeoPixel
     strip.begin();
     strip.show();
     printStatusMessage(calibMode, "NEOPIXEL_OK");
-    _dbg(3); // ADIM 3 — strip.begin() + strip.show() tamam
 
     // Encoder pinleri
     pinMode(ENC_CLK_PIN, INPUT_PULLUP);
@@ -2378,11 +2356,9 @@ void setup() {
     // CLK düşen kenarda kesme — bu satır kesinlikle kaldırılmamalı
     attachInterrupt(digitalPinToInterrupt(ENC_CLK_PIN), encoderISR, FALLING);
     printStatusMessage(calibMode, "ENCODER_IRQ_OK");
-    _dbg(4); // ADIM 4 — encoder IRQ tamam
 
     // SD kart
     initSDCard();
-    _dbg(5); // ADIM 5 — SD kart tamamlandı
 
     // EEPROM önce yükle (düşük öncelik)
     EEPROM.begin(EEPROM_SIZE);
@@ -2390,13 +2366,10 @@ void setup() {
 
     // JSON config EEPROM'u geçersiz kılar (yüksek öncelik)
     loadJsonConfig();
-    _dbg(6); // ADIM 6 — config yüklendi, setupWiFi() çağrılacak
 
     setupWiFi();
-    _dbg(7); // ADIM 7 — setupWiFi() döndü
 
     setupBLE();
-    _dbg(8); // ADIM 8 — setupBLE() döndü
 
 #if defined(USE_TINYUSB)
     Serial.begin(115200);
@@ -2406,7 +2379,6 @@ void setup() {
     }
     serialReady = true;
 #endif
-    _dbg(9); // ADIM 9 — Serial.begin() tamam
 
     // İlk örnekleme ve LED güncelleme
     lastSampleTime  = millis();
@@ -2415,7 +2387,34 @@ void setup() {
     updateLEDs();
 
     printStatusMessage(calibMode, "SYSTEM_STARTED");
-    _dbg(10); // ADIM 10 — setup() TAMAMEN BİTTİ
+
+    // Boot tamamlandı: R → G → B (100 ms arayla)
+    for (int c = 0; c < 3; c++) {
+        strip.clear();
+        for (int i = 0; i < NEO_COUNT; i++) {
+            if      (c == 0) strip.setPixelColor(i, strip.Color(40, 0,  0 ));
+            else if (c == 1) strip.setPixelColor(i, strip.Color(0,  40, 0 ));
+            else             strip.setPixelColor(i, strip.Color(0,  0,  40));
+        }
+        strip.show();
+        delay(100);
+        strip.clear();
+        strip.show();
+        delay(100);
+    }
+
+    // STA bağlantısı bekliyorsa: kırmızı göster
+    if (cfgWifiStaAuto && strlen(wifiStaSSID) > 0) {
+        if (WiFi.status() == WL_CONNECTED) {
+            for (int i = 0; i < NEO_COUNT; i++) strip.setPixelColor(i, strip.Color(0, 40, 0));
+            strip.show();
+            staLedGreenUntil = millis() + 1000;
+        } else {
+            staLedConnecting = true;
+            for (int i = 0; i < NEO_COUNT; i++) strip.setPixelColor(i, strip.Color(40, 0, 0));
+            strip.show();
+        }
+    }
 }
 
 // ============================================================
