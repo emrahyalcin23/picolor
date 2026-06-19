@@ -385,11 +385,9 @@ void appendUserLog(const String& username, const char* clientType, const String&
  * TCP/BLE: satıra ";user=<currentUsername>" eklenir — geriye uyumlu.
  */
 void broadcastLine(const String& line) {
-#if defined(USE_TINYUSB)
     if (serialReady && Serial.availableForWrite() > (int)line.length() + 2) {
         Serial.println(line);
     }
-#endif
     String wirelessLine = line + ";user=" + currentUsername;
     for (int i = 0; i < MAX_TCP_CLIENTS; i++) {
         if (tcpClients[i] && tcpClients[i].connected())
@@ -2348,9 +2346,16 @@ void appendUserLog(const String& username, const char* clientType, const String&
 // ============================================================
 
 void setup() {
-    // TCS LED (aktif-LOW) başlangıçta kapalı
+    // Serial — her modda setup'ın ilk adımı (No USB: Serial1; TinyUSB: SerialUSB)
+    Serial.begin(115200);
+#if defined(USE_TINYUSB)
+    { uint32_t t = millis(); while (!Serial && millis() - t < 3000) {} }
+#endif
+    serialReady = true;
+
+    // TCS LED (aktif-LOW) başlangıçta kapalı — HIGH = off
     pinMode(TCS_LED_PIN, OUTPUT);
-    digitalWrite(TCS_LED_PIN, LOW);
+    digitalWrite(TCS_LED_PIN, HIGH);
 
     // I2C — RP2350 üzerinde SDA=4, SCL=5
     Wire.setSDA(4);
@@ -2390,15 +2395,6 @@ void setup() {
     setupWiFi();
 
     setupBLE();
-
-#if defined(USE_TINYUSB)
-    Serial.begin(115200);
-    {
-        uint32_t t = millis();
-        while (!Serial && millis() - t < 3000) {}
-    }
-    serialReady = true;
-#endif
 
     // İlk örnekleme ve LED güncelleme
     lastSampleTime  = millis();
