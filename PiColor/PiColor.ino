@@ -2129,6 +2129,10 @@ void setupWiFi() {
     if (cfgWifiStaAuto && strlen(wifiStaSSID) > 0 && WiFi.softAPIP() != IPAddress(0, 0, 0, 0)) {
         WiFi.begin(wifiStaSSID, wifiStaPass);
         printStatusMessage(calibMode, "WIFI_STA_CONNECTING");
+        // STA bağlantısı başladı — kırmızı LED hemen yak (RGB blink'lerden önce görünsün)
+        staLedConnecting = true;
+        for (int i = 0; i < NEO_COUNT; i++) strip.setPixelColor(i, strip.Color(40, 0, 0));
+        strip.show();
     }
 
     // TCP sunucusu — global nesneyle başlat (arduino-pico'da en güvenilir yöntem)
@@ -2419,14 +2423,16 @@ void setup() {
         delay(100);
     }
 
-    // STA bağlantısı bekliyorsa: kırmızı göster
-    if (cfgWifiStaAuto && strlen(wifiStaSSID) > 0) {
+    // RGB blink'ler LED'i sıfırladı — STA durumuna göre geri yükle
+    if (staLedConnecting) {
         if (WiFi.status() == WL_CONNECTED) {
+            // RGB blink sırasında bağlandı — doğrudan yeşile geç
+            staLedConnecting = false;
             for (int i = 0; i < NEO_COUNT; i++) strip.setPixelColor(i, strip.Color(0, 40, 0));
             strip.show();
             staLedGreenUntil = millis() + 1000;
         } else {
-            staLedConnecting = true;
+            // Hâlâ bağlanıyor — kırmızıyı geri yak
             for (int i = 0; i < NEO_COUNT; i++) strip.setPixelColor(i, strip.Color(40, 0, 0));
             strip.show();
         }
