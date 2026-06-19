@@ -20,8 +20,7 @@
  *  USB Stack        : No USB   ← ÖNEMLİ: Pico SDK veya TinyUSB seçilirse
  *                               USB-A dışındaki şarj başlıklarında cihaz
  *                               başlamayabilir (bkz. SINIRLILIKLAR.md §1)
- *  IP Stack         : IPv4 Only ← IPv4+IPv6 seçilirse AP+STA çift mod
- *                               kararsız çalışabilir
+ *  IP Stack         : IPv4 + IPv6 + Bluetooth
  *  Upload Method    : Default (UF2) — "No USB" modunda COM port görünmez;
  *                     yüklemek için BOOTSEL basılı tutarak USB tak,
  *                     RPI-RP2 sürücüsü görününce Sketch > Export Compiled
