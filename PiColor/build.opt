@@ -1,2 +1,3 @@
 -DPICO_STDIO_USB_CONNECT_WAIT_TIMEOUT_MS=0
+-DSKIP_DOUBLE_TAP
 -include serial_compat.h
