@@ -25,6 +25,8 @@ Sensor settings compiled in: gain **4×**, integration time **50 ms**.
 ### USB Serial
 Connect via any serial terminal at **115200 baud**. The device identifies itself by returning `IDENTITY=PICOLOR_v0.09.04` to the `KIMSIN` command — use this for automatic port detection.
 
+> **Note:** USB Serial (COM port) is **disabled** in the current build. The firmware uses **No USB** mode — the device never appears as a COM port. To re-enable: set **USB Stack → TinyUSB** in Arduino IDE settings and rebuild. The Apple 20W USB-C charger incompatibility is unrelated to USB stack choice and affects both modes equally (see `SINIRLILIKLAR.md`).
+
 ### WiFi (AP + STA dual mode)
 The device simultaneously runs its own access point **and** can connect to a home/office network.
 
@@ -32,7 +34,7 @@ The device simultaneously runs its own access point **and** can connect to a hom
 |---|---|---|
 | AP SSID | `PiColor` | Always active |
 | AP Password | `picolor123` | WPA2 |
-| AP IP | `192.168.42.1` | Fixed |
+| AP IP | `192.168.4.1` | Fixed (default) |
 | TCP port | `8266` | Configurable at runtime |
 | mDNS | `picolor.local` | On connected network |
 | Max TCP clients | 4 | Simultaneous |
@@ -48,6 +50,21 @@ Implements **Nordic UART Service (NUS)** via BTstack.
 | TX (device → host) | `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` | Notify |
 
 All three channels receive identical output. TCP and BLE responses append `;user=<username>` to each line.
+
+### Connection Channel Priority
+
+Recommended order for first-time connection or troubleshooting:
+
+| Priority | Channel | Address | Condition |
+|---|---|---|---|
+| 1 | **WiFi AP** | `192.168.4.1:8266` | Always available — no configuration needed |
+| 2 | **WiFi STA** | `picolor.local:8266` | Home network credentials configured |
+| 3 | **Bluetooth LE** | NUS profile | No WiFi required; BLE pairing needed |
+| 4 | **USB Serial** | COM port | Disabled in current build (No USB mode) |
+
+WiFi AP is the most reliable starting point because it is always active and requires no prior configuration. STA is preferred once credentials are set — it allows the host machine to reach the device without switching networks. BLE is a useful fallback when no network is available. COM is last because it is currently disabled; re-enabling it requires a firmware rebuild.
+
+**Expected startup time:** approximately 50–70 seconds from power-on to ready state (Bluetooth stack init ~5 s, AP bringup ~5 s, STA connection ~10–30 s depending on router proximity). The NeoPixel strip signals progress: R→G→B blink sequence at boot completion, solid red while connecting to the home network, 1-second solid green when connected.
 
 ---
 
@@ -278,6 +295,8 @@ Derleme zamanı sensör ayarları: kazanım **4×**, entegrasyon süresi **50 ms
 ### USB Serial
 115200 baud ile herhangi bir seri terminale bağlanın. `KIMSIN` komutuna `IDENTITY=PICOLOR_v0.09.04` yanıtı döner — otomatik port tanıma için kullanın.
 
+> **Not:** USB Serial (COM portu) bu derlemede **devre dışıdır.** Firmware **No USB** modunu kullanıyor — cihaz hiçbir zaman COM portu olarak görünmez. Yeniden etkinleştirmek için: Arduino IDE'de **USB Stack → TinyUSB** seçin ve yeniden derleyin. Apple 20W USB-C şarj başlığı uyumsuzluğu, USB stack seçimiyle ilgisizdir; her iki modda da aynı şekilde görünür (bkz. `SINIRLILIKLAR.md`).
+
 ### WiFi (AP + STA çift mod)
 Cihaz kendi erişim noktasını açarken aynı anda ev/ofis ağına da bağlanabilir.
 
@@ -285,7 +304,7 @@ Cihaz kendi erişim noktasını açarken aynı anda ev/ofis ağına da bağlanab
 |---|---|---|
 | AP SSID | `PiColor` | Her zaman aktif |
 | AP Şifre | `picolor123` | WPA2 |
-| AP IP | `192.168.42.1` | Sabit |
+| AP IP | `192.168.4.1` | Sabit (varsayılan) |
 | TCP port | `8266` | Çalışma zamanında değiştirilebilir |
 | mDNS | `picolor.local` | Bağlı ağda çalışır |
 | Maks TCP istemci | 4 | Eş zamanlı |
@@ -301,6 +320,21 @@ BTstack tabanlı **Nordic UART Service (NUS)** uygular.
 | TX (cihaz → host) | `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` | Notify |
 
 Üç kanalın çıktısı aynıdır. TCP ve BLE yanıtlarına `;user=<kullanıcı>` eklenir.
+
+### Bağlantı Kanalı Öncelik Sırası
+
+İlk bağlantı veya sorun giderme için önerilen sıra:
+
+| Öncelik | Kanal | Adres | Koşul |
+|---|---|---|---|
+| 1 | **WiFi AP** | `192.168.4.1:8266` | Her zaman aktif — yapılandırma gerekmez |
+| 2 | **WiFi STA** | `picolor.local:8266` | Ev ağı kimlik bilgileri yapılandırılmış olmalı |
+| 3 | **Bluetooth LE** | NUS profili | WiFi gerekmez; BLE eşleştirme şart |
+| 4 | **USB Serial** | COM portu | Bu derlemede devre dışı (No USB modu) |
+
+WiFi AP en güvenilir başlangıç noktasıdır; her zaman aktiftir ve önceden yapılandırma gerektirmez. STA kimlik bilgileri ayarlandıktan sonra STA tercih edilir — ana bilgisayar, ağ değiştirmeden cihaza erişebilir. BLE, ağ yokken kullanışlı bir alternatiftir. COM sonuncu sıradadır çünkü bu derlemede devre dışıdır; etkinleştirmek için yeniden derleme gerekir.
+
+**Beklenen açılış süresi:** Güç açılışından hazır duruma ~50–70 saniye (Bluetooth yığını başlatma ~5 s, AP kurulumu ~5 s, STA bağlantısı modem mesafesine göre ~10–30 s). NeoPixel şerit ilerlemeyi gösterir: boot tamamlandığında R→G→B blink dizisi, ev ağına bağlanılırken sürekli kırmızı, bağlantı tamamlandığında 1 saniye sürekli yeşil.
 
 ---
 
