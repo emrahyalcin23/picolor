@@ -1182,10 +1182,10 @@ void encoderISR() {
  * norm = (w + 1) / 2  → [0.0, 1.0] aralığına taşır
  * numLeds = 1 + norm * (NEO_COUNT-1)  → kaç LED yanar
  * br = 30 + norm*225  → parlaklık (30–255)
- * w  = norm * 150     → beyaz karışım
+ * br = 10 + norm*245  → saf renk parlaklığı (10=koyu, 255=tam parlak)
  *
- * Kanal renkleri: R=(br,w,w)  G=(w,br,w)  B=(w,w,br)  L=(br,br,br)
- * Bu mantık d2 ile birebir aynıdır.
+ * Kanal renkleri: R=(br,0,0)  G=(0,br,0)  B=(0,0,br)  L=(br,br,br)
+ * Beyaz karışımı yoktur — renk tonu sabit kalır, yalnızca parlaklık değişir.
  */
 void updateLEDs() {
     if (staLedConnecting || staLedGreenUntil > 0) return;
@@ -1197,15 +1197,14 @@ void updateLEDs() {
 
     float norm    = (val + 1.0f) / 2.0f;
     int   numLeds = (int)(norm * (NEO_COUNT - 1)) + 1;
-    int   br      = (int)(30 + norm * 225);
-    int   w       = (int)(norm * 150);
+    int   br      = 10 + (int)(norm * 245);  // 10 (koyu) → 255 (parlak)
 
     strip.clear();
     for (int i = 0; i < numLeds; i++) {
-        if      (currentState == STATE_R) strip.setPixelColor(i, strip.Color(br, w,  w ));
-        else if (currentState == STATE_G) strip.setPixelColor(i, strip.Color(w,  br, w ));
-        else if (currentState == STATE_B) strip.setPixelColor(i, strip.Color(w,  w,  br));
-        else                              strip.setPixelColor(i, strip.Color(br, br, br));
+        if      (currentState == STATE_R) strip.setPixelColor(i, strip.Color(br,  0,   0 ));
+        else if (currentState == STATE_G) strip.setPixelColor(i, strip.Color(0,   br,  0 ));
+        else if (currentState == STATE_B) strip.setPixelColor(i, strip.Color(0,   0,   br));
+        else                              strip.setPixelColor(i, strip.Color(br,  br,  br));
     }
     strip.show();
     ledsActive = true;
