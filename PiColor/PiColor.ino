@@ -2396,10 +2396,11 @@ void setup() {
 
     setupBLE();
 
-    // İlk örnekleme — tampon doldurmak için, LED güncelleme loop'ta yapılır
+    // İlk örnekleme ve LED güncelleme
     lastSampleTime  = millis();
     lastActivityTime = millis();
     handleDataSampling(millis());
+    updateLEDs();
 
     printStatusMessage(calibMode, "SYSTEM_STARTED");
 
