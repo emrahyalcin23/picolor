@@ -311,6 +311,8 @@ static String currentUsername = "serial";
 static char     cfgWifiApSSID[33] = DEFAULT_WIFI_AP_SSID;
 static char     cfgWifiApPass[65] = DEFAULT_WIFI_AP_PASS;
 static bool     cfgWifiStaAuto    = DEFAULT_WIFI_STA_AUTO;
+static bool     cfgPilModu        = false;   // true = pil modu: 3 denemeden sonra STA reconnect durur
+static int      staReconnectAttempts = 0;    // pil modunda deneme sayacı
 static bool          staLedConnecting  = false;
 static unsigned long staLedGreenUntil  = 0;
 static unsigned long staLedConnectingStart = 0;
@@ -385,11 +387,18 @@ void appendUserLog(const String& username, const char* clientType, const String&
  * Serial: satır birebir (değişmez).
  * TCP/BLE: satıra ";user=<currentUsername>" eklenir — geriye uyumlu.
  */
+String getWifiStatusStr() {
+    if (WiFi.status() == WL_CONNECTED) return String(WiFi.SSID());
+    if (staLedConnecting)              return "CONN";
+    return "AP";
+}
+
 void broadcastLine(const String& line) {
-    if (serialReady && Serial.availableForWrite() > (int)line.length() + 2) {
-        Serial.println(line);
+    String out = line + ";wifi=" + getWifiStatusStr();
+    if (serialReady && Serial.availableForWrite() > (int)out.length() + 2) {
+        Serial.println(out);
     }
-    String wirelessLine = line + ";user=" + currentUsername;
+    String wirelessLine = out + ";user=" + currentUsername;
     for (int i = 0; i < MAX_TCP_CLIENTS; i++) {
         if (tcpClients[i] && tcpClients[i].connected())
             tcpClients[i].println(wirelessLine);
@@ -718,7 +727,8 @@ void loadJsonConfig() {
     const char* staPass = doc["wifi_sta_pass"] | "";
     if (strlen(staPass) > 0) strlcpy(wifiStaPass, staPass, EEPROM_PASS_LEN);
 
-    cfgTcpPort = doc["tcp_port"] | cfgTcpPort;
+    cfgTcpPort  = doc["tcp_port"]  | cfgTcpPort;
+    cfgPilModu  = doc["pil_modu"]  | cfgPilModu;
 
     int d = doc["basamak"] | outputDecimals;
     if (d >= 0 && d <= 6) outputDecimals = d;
@@ -2279,8 +2289,14 @@ void handleWiFiReconnect(unsigned long currentMillis) {
     if (!wifiEnabled || !cfgWifiStaAuto || strlen(wifiStaSSID) == 0) return;
     if (currentMillis - lastSTACheck < 30000UL) return;
     lastSTACheck = currentMillis;
-    if (WiFi.status() != WL_CONNECTED)
+    if (WiFi.status() == WL_CONNECTED) {
+        staReconnectAttempts = 0;
+    } else {
+        if (cfgPilModu && staReconnectAttempts >= 3) return; // pil modu: deneme limitine ulaşıldı
         WiFi.begin(wifiStaSSID, wifiStaPass);
+        staReconnectAttempts++;
+        printStatusMessage(calibMode, "WIFI_STA_RECONNECTING");
+    }
 }
 
 void handleTCPClients() {
