@@ -199,9 +199,12 @@ function Invoke-PiColorQuery ([string]$cmd) {
         # Cihaz baglanti kurulunca 2 selamlama satiri gonderir; hepsini bosalt
         # 1: TCP_CONNECTED=PICOLOR_vX.XX (direkt), 2: TCP_CLIENT_CONNECTED (broadcast)
         $greetEnd = [DateTime]::Now.AddMilliseconds(500)
+        $greetIdx = 0
         while ([DateTime]::Now -lt $greetEnd) {
             if ($stream.DataAvailable) {
-                $reader.ReadLine() | Out-Null
+                $greetIdx++
+                $gl = $reader.ReadLine()
+                Write-Host ("       [S$greetIdx] $gl") -ForegroundColor DarkGray
                 $greetEnd = [DateTime]::Now.AddMilliseconds(300)
             } else {
                 Start-Sleep -Milliseconds 30
@@ -217,6 +220,7 @@ function Invoke-PiColorQuery ([string]$cmd) {
         while ([DateTime]::Now -lt $deadline) {
             if ($client.Available -gt 0 -or $stream.DataAvailable) {
                 $line = $reader.ReadLine()
+                Write-Host ("       [Y]  $line") -ForegroundColor DarkGray
                 if ($line -and $line.Contains(";")) {
                     $res.Line = $line.Trim()
                     $res.OK   = $true
