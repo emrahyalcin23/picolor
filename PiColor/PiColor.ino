@@ -398,8 +398,12 @@ void appendUserLog(const String& username, const char* clientType, const String&
  * diğer          → "AP"  (yalnızca kendi AP ağı aktif)
  */
 String getWifiStatusStr() {
-    if (WiFi.status() == WL_CONNECTED) return String(WiFi.SSID());
-    if (staLedConnecting)              return "CONN";
+    if (WiFi.status() == WL_CONNECTED) {
+        String ssid = WiFi.SSID();
+        if (ssid.length() > 0) return ssid;
+        return String(wifiStaSSID); // WiFi.SSID() boş dönerse yapılandırılmış SSID kullan
+    }
+    if (staLedConnecting) return "CONN";
     return "AP";
 }
 
