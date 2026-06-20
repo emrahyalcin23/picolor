@@ -2353,7 +2353,7 @@ void setup() {
 #endif
     serialReady = true;
 
-    // TCS LED başlangıçta kapalı — aktif-HIGH: LOW = off
+    // TCS LED (aktif-LOW) başlangıçta kapalı
     pinMode(TCS_LED_PIN, OUTPUT);
     digitalWrite(TCS_LED_PIN, LOW);
 
