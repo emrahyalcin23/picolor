@@ -196,11 +196,16 @@ function Invoke-PiColorQuery ([string]$cmd) {
 
         $reader = New-Object IO.StreamReader($stream, [Text.Encoding]::UTF8)
 
-        # Cihaz baglanti kurulunca selamlama satiri gonderir; komut gondermeden once oku/atla
-        $greetEnd = [DateTime]::Now.AddMilliseconds(600)
+        # Cihaz baglanti kurulunca 2 selamlama satiri gonderir; hepsini bosalt
+        # 1: TCP_CONNECTED=PICOLOR_vX.XX (direkt), 2: TCP_CLIENT_CONNECTED (broadcast)
+        $greetEnd = [DateTime]::Now.AddMilliseconds(500)
         while ([DateTime]::Now -lt $greetEnd) {
-            if ($stream.DataAvailable) { $reader.ReadLine() | Out-Null; break }
-            Start-Sleep -Milliseconds 30
+            if ($stream.DataAvailable) {
+                $reader.ReadLine() | Out-Null
+                $greetEnd = [DateTime]::Now.AddMilliseconds(300)
+            } else {
+                Start-Sleep -Milliseconds 30
+            }
         }
 
         $bytes = [Text.Encoding]::UTF8.GetBytes($cmd + "`n")
