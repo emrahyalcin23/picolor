@@ -4,9 +4,9 @@
  * Copyright (c) 2026 Emrah YALÇIN
  * MIT License — https://opensource.org/licenses/MIT
  * ------------------------------------------------------------
- * VERSİYON : v0.09.00
+ * VERSİYON : v0.09.04
  * TANIM    : AP+STA çift mod WiFi — cihaz hem ev ağına (STA) bağlanır
- *            hem kendi AP ağını (192.168.42.1) açar. STA kimlik bilgileri
+ *            hem kendi AP ağını (192.168.4.1) açar. STA kimlik bilgileri
  *            EEPROM'da saklanır; TCP sunucusu her iki arabirimde (AP+STA)
  *            dinler. SD karttaki config.json runtime yapılandırmasını
  *            destekler; SD yoksa varsayılan değerler geçerlidir.
@@ -38,7 +38,10 @@
  *
  * ÇIKTI PROTOKOLÜ (tüm satırlar bu formatı kullanır)
  * ---------------------------------------------------
- *  timestamp ; type ; mode ; ... [; meta]
+ *  Seri   : timestamp;type;mode;...;[meta];wifi=<durum>
+ *  TCP/BLE: timestamp;type;mode;...;[meta];wifi=<durum>;user=<kullanıcı>
+ *
+ *  wifi= → ev modemine bağlıysa SSID | bağlanıyor ise CONN | yalnızca AP ise AP
  *
  *  type  → 0=LIVE  1=SINGLE  2=AVERAGE  3=RAW
  *          4=STATUS  5=ERROR  6=DUAL  7=FULL
@@ -47,6 +50,12 @@
  *  İşlenmiş RGB değerleri (0–100): BASAMAK_<n> ile ondalık basamak,
  *  LOGARITMIK ile Weber-Fechner log dönüşümü uygulanır.
  *  Ham (RAW) değerler, lüks ve katsayılar ölçekten etkilenmez.
+ *
+ * YAPILANDIRMA (config.json seçili ayarlar)
+ * -----------------------------------------
+ *  pil_modu: true → STA 3 denemeden sonra yeniden bağlantı durur
+ *            false (varsayılan) → sürekli enerji; sınırsız deneme
+ *  (tüm seçenekler için README.md veya loadJsonConfig() bkz.)
  *
  * KOMUT LİSTESİ (YARDIM / HELP)
  * ------------------------------
@@ -381,11 +390,12 @@ void bleSendLine(const String& line);
 void appendUserLog(const String& username, const char* clientType, const String& command);
 
 /*
- * broadcastLine
- * -------------
- * Bir çıktı satırını tüm aktif kanallara gönderir.
- * Serial: satır birebir (değişmez).
- * TCP/BLE: satıra ";user=<currentUsername>" eklenir — geriye uyumlu.
+ * getWifiStatusStr
+ * ----------------
+ * Mevcut WiFi bağlantı durumunu kısa bir string olarak döndürür.
+ * WL_CONNECTED  → bağlı ağın SSID adı
+ * staLedConnecting true → "CONN" (bağlanma devam ediyor)
+ * diğer          → "AP"  (yalnızca kendi AP ağı aktif)
  */
 String getWifiStatusStr() {
     if (WiFi.status() == WL_CONNECTED) return String(WiFi.SSID());
@@ -393,6 +403,13 @@ String getWifiStatusStr() {
     return "AP";
 }
 
+/*
+ * broadcastLine
+ * -------------
+ * Bir çıktı satırını tüm aktif kanallara gönderir.
+ * Serial  : satıra ";wifi=<durum>" eklenir.
+ * TCP/BLE : satıra ";wifi=<durum>;user=<currentUsername>" eklenir.
+ */
 void broadcastLine(const String& line) {
     String out = line + ";wifi=" + getWifiStatusStr();
     if (serialReady && Serial.availableForWrite() > (int)out.length() + 2) {
@@ -1431,6 +1448,12 @@ void showHelp() {
 #endif
 }
 
+/*
+ * showDurum
+ * ---------
+ * Sistem durumunu birkaç STATUS satırı halinde tüm kanallara gönderir:
+ * firmware sürümü, SD kart, ölçek ayarları, AP bilgisi, STA durumu, BLE.
+ */
 void showDurum() {
     char meta[160];
 
@@ -2002,6 +2025,12 @@ void handleTestMode(unsigned long currentMillis) {
 // ========== KABLOSUZ FONKSİYONLARI =========================
 // ============================================================
 
+/*
+ * loadWiFiCredentials
+ * -------------------
+ * EEPROM'dan STA kimlik bilgilerini okur. Magic byte yoksa (hiç kaydedilmemişse)
+ * .ino sabitlerindeki DEFAULT_WIFI_STA_SSID/PASS değerleri korunur.
+ */
 void loadWiFiCredentials() {
     if (EEPROM.read(0) != EEPROM_MAGIC) {
         // EEPROM'da kayıtlı kimlik yok — .ino'daki DEFAULT_WIFI_STA_SSID/PASS geçerli kalır
@@ -2016,6 +2045,12 @@ void loadWiFiCredentials() {
     wifiStaPass[EEPROM_PASS_LEN - 1]  = '\0';
 }
 
+/*
+ * saveWiFiCredentials
+ * -------------------
+ * Mevcut wifiStaSSID/wifiStaPass değerlerini EEPROM'a yazar.
+ * WIFI_STA_KAYDET komutu tarafından çağrılır — döngüsel çağrıdan kaçının.
+ */
 void saveWiFiCredentials() {
     EEPROM.write(0, EEPROM_MAGIC);
     for (int i = 0; i < EEPROM_SSID_LEN; i++)
@@ -2028,6 +2063,12 @@ void saveWiFiCredentials() {
 // --- STA kimlik bilgileri: yalnızca RAM (bu oturum) ---
 // Kalıcı kayıt için: config.json (SD kart) veya WIFI_STA_KAYDET (EEPROM)
 
+/*
+ * setWiFiStaSSID / setWiFiStaPass
+ * --------------------------------
+ * Ev modemi kimlik bilgilerini yalnızca RAM'e yazar (bu oturum).
+ * WIFI_STA_SSID= ve WIFI_STA_PASS= komutları tarafından çağrılır.
+ */
 void setWiFiStaSSID(const String& ssid) {
     strncpy(wifiStaSSID, ssid.c_str(), EEPROM_SSID_LEN - 1);
     wifiStaSSID[EEPROM_SSID_LEN - 1] = '\0';
@@ -2045,6 +2086,13 @@ void setWiFiStaPass(const String& pass) {
 // --- AP kimlik bilgileri: yalnızca RAM (bu oturum) ---
 // Kalıcı kayıt için: config.json (SD kart)
 
+/*
+ * setWiFiApSSID / setWiFiApPass
+ * ------------------------------
+ * AP kimlik bilgilerini yalnızca RAM'e yazar (bu oturum).
+ * WIFI_AP_SSID= ve WIFI_AP_PASS= komutları tarafından çağrılır.
+ * Değişikliğin etkili olması için WIFI_AP_YENILE komutu gerekir.
+ */
 void setWiFiApSSID(const String& ssid) {
     ssid.toCharArray(cfgWifiApSSID, sizeof(cfgWifiApSSID));
     char meta[48];
@@ -2057,6 +2105,13 @@ void setWiFiApPass(const String& pass) {
     printStatusMessage(calibMode, "AP_PASS=RAM");
 }
 
+/*
+ * restartAP
+ * ---------
+ * Mevcut RAM'deki AP SSID/şifre değerleriyle AP'yi yeniden başlatır.
+ * Not: softAPConfig arduino-pico 5.6.0'da güvenilir çalışmıyor;
+ *      gerçek IP her zaman 192.168.4.1 olarak atanır.
+ */
 void restartAP() {
     WiFi.softAPConfig(IPAddress(192,168,42,1),
                       IPAddress(192,168,42,1),
@@ -2069,6 +2124,13 @@ void restartAP() {
     printStatusMessage(calibMode, meta);
 }
 
+/*
+ * changeTcpPort
+ * -------------
+ * TCP sunucusunu durdurur ve yeni portta yeniden başlatır.
+ * DEFAULT_TCP_PORT için global g_tcpServer nesnesi kullanılır;
+ * farklı port için heap'te yeni WiFiServer oluşturulur.
+ */
 void changeTcpPort(uint16_t newPort) {
     if (tcpServer) tcpServer->stop();
     // Sadece heap ile oluşturulmuşsa sil; global nesneyi (g_tcpServer) silme
@@ -2088,6 +2150,12 @@ void changeTcpPort(uint16_t newPort) {
     printStatusMessage(calibMode, meta);
 }
 
+/*
+ * reconnectWiFiSTA
+ * ----------------
+ * WIFI_STA_BAGLAN komutunu işler: kimlik bilgisi varsa WiFi.begin() çağrılır.
+ * Otomatik periyodik yeniden bağlantı için handleWiFiReconnect() kullanılır.
+ */
 void reconnectWiFiSTA() {
     if (strlen(wifiStaSSID) > 0) {
         WiFi.begin(wifiStaSSID, wifiStaPass);
@@ -2097,6 +2165,12 @@ void reconnectWiFiSTA() {
     }
 }
 
+/*
+ * showWiFiBilgi
+ * -------------
+ * WIFI_BILGI komutunu işler: AP SSID/IP/port ve STA SSID/IP/durum
+ * bilgilerini iki ayrı STATUS satırı olarak gönderir.
+ */
 void showWiFiBilgi() {
     char meta[120];
     if (strlen(wifiStaSSID) > 0) {
@@ -2116,6 +2190,12 @@ void showWiFiBilgi() {
     printStatusMessage(calibMode, meta);
 }
 
+/*
+ * clearWiFiCredentials
+ * --------------------
+ * EEPROM'daki magic byte'ı silerek STA kimlik bilgilerini geçersiz kılar,
+ * RAM'deki değerleri .ino sabitlerinden sıfırlar ve bağlanmayı dener.
+ */
 void clearWiFiCredentials() {
     EEPROM.write(0, 0x00);
     EEPROM.commit();
@@ -2127,6 +2207,14 @@ void clearWiFiCredentials() {
     reconnectWiFiSTA();
 }
 
+/*
+ * setupWiFi
+ * ---------
+ * AP'yi başlatır, STA bağlantısını tetikler ve TCP sunucusunu açar.
+ * Sıralama önemlidir: AP önce hazır olmalı, ardından WiFi.begin() çağrılmalı
+ * (çakışma sorunu — arduino-pico 5.6.0).
+ * STA bağlantısı başlarsa NeoPixel kırmızı yanarak handleWiFiReconnect()'i bekler.
+ */
 void setupWiFi() {
     // AP başlat — CYW43 default IP 192.168.4.1 kullanır (softAPConfig arduino-pico 5.6.0'da çalışmıyor)
     WiFi.softAP(cfgWifiApSSID, cfgWifiApPass);
@@ -2166,6 +2254,13 @@ void setupWiFi() {
     printStatusMessage(calibMode, apMeta);
 }
 
+/*
+ * disableWiFi / enableWiFi
+ * ------------------------
+ * WIRELESS_ENABLED=0/1 komutu bu fonksiyonları çağırır.
+ * disableWiFi: tüm TCP bağlantılarını kapatır, AP ve STA'yı durdurur.
+ * enableWiFi : wifiEnabled bayrağını true yapar ve setupWiFi()'ı yeniden çağırır.
+ */
 void disableWiFi() {
     for (int i = 0; i < MAX_TCP_CLIENTS; i++) {
         if (tcpClients[i]) tcpClients[i].stop();
@@ -2185,6 +2280,12 @@ void enableWiFi() {
 
 // --- BTstack BLE callbacks ---
 
+/*
+ * onBLEDeviceConnected
+ * --------------------
+ * BTstack bağlantı callback'i. Başarılı bağlantıda bleConnected = true,
+ * merkez cihazın handle'ı bleCentralHandle'a kaydedilir.
+ */
 static void onBLEDeviceConnected(BLEStatus status, BLEDevice *device) {
     if (status == BLE_STATUS_OK) {
         bleConnected    = true;
@@ -2193,6 +2294,11 @@ static void onBLEDeviceConnected(BLEStatus status, BLEDevice *device) {
     }
 }
 
+/*
+ * onBLEDeviceDisconnected
+ * -----------------------
+ * Bağlantı koptuğunda durumu sıfırlar ve reklamı yeniden başlatır.
+ */
 static void onBLEDeviceDisconnected(BLEDevice *device) {
     bleConnected     = false;
     bleRxLen         = 0;
@@ -2201,6 +2307,14 @@ static void onBLEDeviceDisconnected(BLEDevice *device) {
     BTstack.startAdvertising();
 }
 
+/*
+ * onBLECharacteristicWrite
+ * ------------------------
+ * NUS RX karakteristiğine yazıldığında tetiklenir (BTstack callback).
+ * Gelen byte'ları bleRxBuf'a biriktirir; '\n' görünce tam satırı
+ * blePendingCmd'e koyar ve bleHasPendingCmd bayrağını set eder.
+ * Komut loop()'ta (handleBLEClients) işlenir — callback içinde değil.
+ */
 static int onBLECharacteristicWrite(uint16_t handle,
                                     uint8_t *data, uint16_t size) {
     if (handle != (uint16_t)nusRxHandle) return 0;
@@ -2232,6 +2346,12 @@ static int onBLECharacteristicWrite(uint16_t handle,
 
 // --- BLE setup & send ---
 
+/*
+ * setupBLE
+ * --------
+ * BTstack'i başlatır, NUS servisini (Nordic UART) GATT tablosuna ekler
+ * ve reklamı başlatır. TX/RX handle'ları global değişkenlere kaydedilir.
+ */
 void setupBLE() {
     BTstack.setBLEDeviceConnectedCallback(onBLEDeviceConnected);
     BTstack.setBLEDeviceDisconnectedCallback(onBLEDeviceDisconnected);
@@ -2251,6 +2371,12 @@ void setupBLE() {
     printStatusMessage(calibMode, "BLE_NUS_STARTED");
 }
 
+/*
+ * bleSendLine
+ * -----------
+ * NUS TX karakteristiğine bir satır + '\n' gönderir.
+ * Bağlı istemci yoksa sessizce döner.
+ */
 void bleSendLine(const String& line) {
     if (!bleConnected || bleCentralHandle == HCI_CON_HANDLE_INVALID) return;
     String data = line + "\n";
@@ -2258,6 +2384,15 @@ void bleSendLine(const String& line) {
         (uint8_t*)data.c_str(), (uint16_t)data.length());
 }
 
+/*
+ * handleWiFiReconnect
+ * -------------------
+ * Her loop() iterasyonunda üç görevi yürütür:
+ * 1. STA bağlandıysa kırmızı LED'i söndürür, 1s yeşil yakar.
+ * 2. 30s içinde bağlantı kurulamazsa 3x kırmızı blink → LED söndürme.
+ * 3. Her 30s'de bir STA'yı kontrol eder; kopuksa yeniden bağlanır.
+ *    cfgPilModu true ise 3 başarısız denemeden sonra bağlantı denemesi durur.
+ */
 void handleWiFiReconnect(unsigned long currentMillis) {
     // İlk STA bağlantısı LED tespiti — her döngüde hızlı kontrol
     if (staLedConnecting && WiFi.status() == WL_CONNECTED) {
@@ -2299,6 +2434,13 @@ void handleWiFiReconnect(unsigned long currentMillis) {
     }
 }
 
+/*
+ * handleTCPClients
+ * ----------------
+ * Yeni TCP bağlantılarını kabul eder (maks MAX_TCP_CLIENTS); doluysa reddeder.
+ * Bağlı her istemciden karakter karakter satır biriktirir, '\n' gelince
+ * processCommandLine()'a iletir. USER:<kullanıcı> öneki ayrıştırılır.
+ */
 void handleTCPClients() {
     if (!wifiEnabled || !tcpServer) return;
     WiFiClient newClient = tcpServer->accept();
@@ -2355,6 +2497,12 @@ void handleTCPClients() {
     }
 }
 
+/*
+ * handleBLEClients
+ * ----------------
+ * BTstack'in dahili döngüsünü çalıştırır ve varsa bekleyen BLE komutunu işler.
+ * Komut onBLECharacteristicWrite callback'inden blePendingCmd'e aktarılmıştır.
+ */
 void handleBLEClients() {
     BTstack.loop();
     if (bleHasPendingCmd) {
@@ -2363,6 +2511,12 @@ void handleBLEClients() {
     }
 }
 
+/*
+ * appendUserLog
+ * -------------
+ * loggingEnabled true ise komutu SD karttaki cfgLogFile'a ekler.
+ * Şifre içeren satırlar processCommandLine tarafından maskelenerek iletilir.
+ */
 void appendUserLog(const String& username, const char* clientType, const String& command) {
     if (!loggingEnabled || !sdCardAvailable || !sdCardMounted) return;
     File f = SD.open(cfgLogFile, FILE_WRITE);

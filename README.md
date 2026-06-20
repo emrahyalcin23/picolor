@@ -49,7 +49,7 @@ Implements **Nordic UART Service (NUS)** via BTstack.
 | RX (host → device) | `6E400002-B5A3-F393-E0A9-E50E24DCCA9E` | Write |
 | TX (device → host) | `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` | Notify |
 
-All three channels receive identical output. TCP and BLE responses append `;user=<username>` to each line.
+All three channels receive identical output with `;wifi=<status>` appended. TCP and BLE responses additionally append `;user=<username>`. The `wifi=` field contains the home network SSID when connected, `CONN` while connecting, or `AP` when only the access point is active.
 
 ### Connection Channel Priority
 
@@ -86,6 +86,7 @@ At boot the device applies settings in this priority order:
   "wifi_sta_ssid":     "",
   "wifi_sta_pass":     "",
   "tcp_port":          8266,
+  "pil_modu":          false,
   "basamak":           1,
   "logaritmik":        false,
   "log_dekad":         3.0,
@@ -96,15 +97,25 @@ At boot the device applies settings in this priority order:
 }
 ```
 
+`pil_modu`: when `true`, STA reconnection stops after 3 failed attempts (battery-powered use). When `false` (default), reconnection continues indefinitely (mains-powered use).
+
 ---
 
 ## Output Protocol
 
-Every output line — across all channels — follows this format:
+Every output line follows this format:
 
+**Serial:**
 ```
-<timestamp_ms>;<type>;<mode>;<v1>;<v2>;<v3>[;<meta>]
+<timestamp_ms>;<type>;<mode>;<v1>;<v2>;<v3>[;<meta>];wifi=<status>
 ```
+
+**TCP / BLE:**
+```
+<timestamp_ms>;<type>;<mode>;<v1>;<v2>;<v3>[;<meta>];wifi=<status>;user=<username>
+```
+
+The `wifi=` field is the home network SSID when connected, `CONN` while connecting, or `AP` when only the access point is active.
 
 **Type field:**
 
@@ -319,7 +330,7 @@ BTstack tabanlı **Nordic UART Service (NUS)** uygular.
 | RX (host → cihaz) | `6E400002-B5A3-F393-E0A9-E50E24DCCA9E` | Write |
 | TX (cihaz → host) | `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` | Notify |
 
-Üç kanalın çıktısı aynıdır. TCP ve BLE yanıtlarına `;user=<kullanıcı>` eklenir.
+Üç kanalın çıktısı aynıdır; tüm satırlara `;wifi=<durum>` eklenir. TCP ve BLE yanıtlarına ek olarak `;user=<kullanıcı>` da eklenir. `wifi=` alanı; ev ağına bağlıyken SSID adı, bağlanırken `CONN`, yalnızca AP aktifken `AP` değerini taşır.
 
 ### Bağlantı Kanalı Öncelik Sırası
 
@@ -356,6 +367,7 @@ WiFi AP en güvenilir başlangıç noktasıdır; her zaman aktiftir ve önceden 
   "wifi_sta_ssid":     "",
   "wifi_sta_pass":     "",
   "tcp_port":          8266,
+  "pil_modu":          false,
   "basamak":           1,
   "logaritmik":        false,
   "log_dekad":         3.0,
@@ -366,15 +378,25 @@ WiFi AP en güvenilir başlangıç noktasıdır; her zaman aktiftir ve önceden 
 }
 ```
 
+`pil_modu`: `true` ise STA yeniden bağlantı 3 başarısız denemeden sonra durur (pil beslemeli kullanım). `false` (varsayılan) ise bağlantı denemesi süreklidir (şebeke beslemeli kullanım).
+
 ---
 
 ## Çıktı Protokolü
 
-Her çıktı satırı — tüm kanallarda — şu formatı izler:
+Her çıktı satırı şu formatı izler:
 
+**Seri:**
 ```
-<timestamp_ms>;<tip>;<mod>;<v1>;<v2>;<v3>[;<meta>]
+<timestamp_ms>;<tip>;<mod>;<v1>;<v2>;<v3>[;<meta>];wifi=<durum>
 ```
+
+**TCP / BLE:**
+```
+<timestamp_ms>;<tip>;<mod>;<v1>;<v2>;<v3>[;<meta>];wifi=<durum>;user=<kullanıcı>
+```
+
+`wifi=` alanı; ev ağına bağlıyken SSID adı, bağlanırken `CONN`, yalnızca AP aktifken `AP` değerini taşır.
 
 **Tip alanı:**
 
