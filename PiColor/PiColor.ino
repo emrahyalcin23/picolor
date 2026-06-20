@@ -158,6 +158,7 @@ extern "C" {
 // VARSAYILAN AYARLAR — config.json yoksa bu değerler kullanılır
 // SD karta config.json koyarak herhangi birini override edebilirsiniz.
 // ============================================================
+#define DEFAULT_DEVICE_NAME    "PiColor_Modul_1"        // Cihaz adı
 #define DEFAULT_WIFI_AP_SSID    "PiColor"        // AP ağ adı
 #define DEFAULT_WIFI_AP_PASS    "picolor123"      // AP şifresi (min 8 karakter)
 #define DEFAULT_WIFI_STA_SSID   ""               // ev modemi ağ adı (boş = bağlanma)
@@ -399,7 +400,7 @@ void appendUserLog(const String& username, const char* clientType, const String&
  */
 String getWifiStatusStr() {
     if (WiFi.status() == WL_CONNECTED) {
-        String ssid = WiFi.SSID();
+        String ssid = DEFAULT_DEVICE_NAME // eski : WiFi.SSID();
         if (ssid.length() > 0) return ssid;
         return String(wifiStaSSID); // WiFi.SSID() boş dönerse yapılandırılmış SSID kullan
     }
