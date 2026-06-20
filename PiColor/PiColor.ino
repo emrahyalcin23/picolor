@@ -313,6 +313,7 @@ static char     cfgWifiApPass[65] = DEFAULT_WIFI_AP_PASS;
 static bool     cfgWifiStaAuto    = DEFAULT_WIFI_STA_AUTO;
 static bool          staLedConnecting  = false;
 static unsigned long staLedGreenUntil  = 0;
+static unsigned long staLedConnectingStart = 0;
 static bool     loggingEnabled    = DEFAULT_LOGGING;
 static char     cfgLogFile[64]    = DEFAULT_LOG_FILE;
 static uint16_t cfgTcpPort        = DEFAULT_TCP_PORT;
@@ -2128,7 +2129,8 @@ void setupWiFi() {
         WiFi.begin(wifiStaSSID, wifiStaPass);
         printStatusMessage(calibMode, "WIFI_STA_CONNECTING");
         // STA bağlantısı başladı — kırmızı LED hemen yak (RGB blink'lerden önce görünsün)
-        staLedConnecting = true;
+        staLedConnecting      = true;
+        staLedConnectingStart = millis();
         for (int i = 0; i < NEO_COUNT; i++) strip.setPixelColor(i, strip.Color(40, 0, 0));
         strip.show();
     }
@@ -2249,10 +2251,23 @@ void bleSendLine(const String& line) {
 void handleWiFiReconnect(unsigned long currentMillis) {
     // İlk STA bağlantısı LED tespiti — her döngüde hızlı kontrol
     if (staLedConnecting && WiFi.status() == WL_CONNECTED) {
-        staLedConnecting = false;
+        staLedConnecting      = false;
+        staLedConnectingStart = 0;
         for (int i = 0; i < NEO_COUNT; i++) strip.setPixelColor(i, strip.Color(0, 40, 0));
         strip.show();
         staLedGreenUntil = currentMillis + 1000;
+    }
+    // Bağlantı 30 sn içinde kurulamazsa: 3x kırmızı blink, söndür
+    if (staLedConnecting && staLedConnectingStart > 0 &&
+        currentMillis - staLedConnectingStart >= 30000UL) {
+        staLedConnecting      = false;
+        staLedConnectingStart = 0;
+        for (int b = 0; b < 3; b++) {
+            for (int i = 0; i < NEO_COUNT; i++) strip.setPixelColor(i, strip.Color(40, 0, 0));
+            strip.show(); delay(200);
+            strip.clear(); strip.show(); delay(200);
+        }
+        updateLEDs();
     }
     if (staLedGreenUntil > 0 && currentMillis >= staLedGreenUntil) {
         staLedGreenUntil = 0;
