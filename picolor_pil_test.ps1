@@ -94,9 +94,8 @@ if ($HostName -match '\.local$') {
     if ($dns) {
         $resolvedHost = ($dns | Where-Object { $_.Type -eq 'A' } | Select-Object -First 1).IPAddress
     } else {
-        Write-Host "  [!] '$HostName' cozumlenemedi. Bonjour yuklu mu?" -ForegroundColor Red
-        Write-Host "  [!] IP adresini dogrudan kullanin: -HostName 192.168.x.x" -ForegroundColor Yellow
-        exit 1
+        Write-Host "  [~] mDNS ile cozumlenemedi, dogrudan deneniyor..." -ForegroundColor DarkYellow
+        Write-Host "  [~] Hata alirsan IP ile baslat: -HostName 192.168.x.x" -ForegroundColor DarkYellow
     }
 }
 
