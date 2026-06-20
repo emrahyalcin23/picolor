@@ -194,18 +194,26 @@ function Invoke-PiColorQuery ([string]$cmd) {
         $stream.ReadTimeout  = $Timeout * 1000
         $stream.WriteTimeout = $Timeout * 1000
 
-        $reader = New-Object IO.StreamReader($stream, [Text.Encoding]::UTF8)
-
-        # Cihaz baglanti kurulunca 2 selamlama satiri gonderir; hepsini bosalt
-        # 1: TCP_CONNECTED=PICOLOR_vX.XX (direkt), 2: TCP_CLIENT_CONNECTED (broadcast)
-        $greetEnd = [DateTime]::Now.AddMilliseconds(500)
+        # Selamlamalari ham stream.Read() ile bosalt; StreamReader kullanma.
+        # StreamReader her iki satiri tek seferde tamponuna ceker, stream.DataAvailable
+        # sifirlanir ve ikinci satir "gizli" kalir. Ham okuma bu sorunu onler.
+        $rawBuf   = New-Object byte[] 4096
         $greetIdx = 0
+        $greetEnd = [DateTime]::Now.AddMilliseconds(600)
         while ([DateTime]::Now -lt $greetEnd) {
             if ($stream.DataAvailable) {
-                $greetIdx++
-                $gl = $reader.ReadLine()
-                Write-Host ("       [S$greetIdx] $gl") -ForegroundColor DarkGray
-                $greetEnd = [DateTime]::Now.AddMilliseconds(300)
+                $n = $stream.Read($rawBuf, 0, $rawBuf.Length)
+                if ($n -gt 0) {
+                    $chunk = [Text.Encoding]::UTF8.GetString($rawBuf, 0, $n)
+                    foreach ($gl in ($chunk -split "`n")) {
+                        $gl = $gl.TrimEnd("`r")
+                        if ($gl.Length -gt 0) {
+                            $greetIdx++
+                            Write-Host ("       [S$greetIdx] $gl") -ForegroundColor DarkGray
+                        }
+                    }
+                    $greetEnd = [DateTime]::Now.AddMilliseconds(300)
+                }
             } else {
                 Start-Sleep -Milliseconds 30
             }
@@ -215,6 +223,8 @@ function Invoke-PiColorQuery ([string]$cmd) {
         $stream.Write($bytes, 0, $bytes.Length)
         $stream.Flush()
 
+        # StreamReader'i komut yaniti icin temiz tamponla olustur
+        $reader   = New-Object IO.StreamReader($stream, [Text.Encoding]::UTF8)
         $deadline = [DateTime]::Now.AddSeconds($Timeout)
 
         while ([DateTime]::Now -lt $deadline) {
