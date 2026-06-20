@@ -52,7 +52,7 @@ param(
     [int]    $Port                = 8266,
     [int]    $Interval            = 30,
     [string] $LogDir              = $PSScriptRoot,
-    [string] $Command             = "OKU_0",
+    [string] $Command             = "OKU_1",
     [int]    $Timeout             = 8,
     [int]    $MaxConsecutiveFail  = 5,
     [int]    $StatusInterval      = 10
@@ -194,11 +194,19 @@ function Invoke-PiColorQuery ([string]$cmd) {
         $stream.ReadTimeout  = $Timeout * 1000
         $stream.WriteTimeout = $Timeout * 1000
 
+        $reader = New-Object IO.StreamReader($stream, [Text.Encoding]::UTF8)
+
+        # Cihaz baglanti kurulunca selamlama satiri gonderir; komut gondermeden once oku/atla
+        $greetEnd = [DateTime]::Now.AddMilliseconds(600)
+        while ([DateTime]::Now -lt $greetEnd) {
+            if ($stream.DataAvailable) { $reader.ReadLine() | Out-Null; break }
+            Start-Sleep -Milliseconds 30
+        }
+
         $bytes = [Text.Encoding]::UTF8.GetBytes($cmd + "`n")
         $stream.Write($bytes, 0, $bytes.Length)
         $stream.Flush()
 
-        $reader   = New-Object IO.StreamReader($stream, [Text.Encoding]::UTF8)
         $deadline = [DateTime]::Now.AddSeconds($Timeout)
 
         while ([DateTime]::Now -lt $deadline) {
@@ -298,9 +306,9 @@ try {
         $durStr  = Format-Duration $elapsed
         $saat    = (Get-Date).ToString("HH:mm:ss")
 
-        # Her StatusInterval sorguda bir DURUM da gonder
+        # Ilk sorguda ve her StatusInterval'da bir DURUM gonder
         $sorguKomutu = $Command
-        if ($StatusInterval -gt 0 -and ($iteration % $StatusInterval) -eq 0) {
+        if ($iteration -eq 1 -or ($StatusInterval -gt 0 -and ($iteration % $StatusInterval) -eq 0)) {
             $sorguKomutu = "DURUM"
         }
 
