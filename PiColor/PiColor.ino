@@ -158,7 +158,7 @@ extern "C" {
 // VARSAYILAN AYARLAR — config.json yoksa bu değerler kullanılır
 // SD karta config.json koyarak herhangi birini override edebilirsiniz.
 // ============================================================
-#define DEFAULT_DEVICE_NAME    "PiColor_Modul_1"        // Cihaz adı
+#define DEFAULT_DEVICE_NAME     "PiColor_Modul_1" // Cihaz adı (BLE, WiFi hostname, çıktı)
 #define DEFAULT_WIFI_AP_SSID    "PiColor"        // AP ağ adı
 #define DEFAULT_WIFI_AP_PASS    "picolor123"      // AP şifresi (min 8 karakter)
 #define DEFAULT_WIFI_STA_SSID   ""               // ev modemi ağ adı (boş = bağlanma)
@@ -399,12 +399,8 @@ void appendUserLog(const String& username, const char* clientType, const String&
  * diğer          → "AP"  (yalnızca kendi AP ağı aktif)
  */
 String getWifiStatusStr() {
-    if (WiFi.status() == WL_CONNECTED) {
-        String ssid = DEFAULT_DEVICE_NAME // eski : WiFi.SSID();
-        if (ssid.length() > 0) return ssid;
-        return String(wifiStaSSID); // WiFi.SSID() boş dönerse yapılandırılmış SSID kullan
-    }
-    if (staLedConnecting) return "CONN";
+    if (WiFi.status() == WL_CONNECTED) return DEFAULT_DEVICE_NAME;
+    if (staLedConnecting)              return "CONN";
     return "AP";
 }
 
@@ -2229,6 +2225,7 @@ void setupWiFi() {
     // STA: AP tamamen hazır olduktan sonra başlat — WiFi.begin() AP'yi bozabilir
     // (arduino-pico 5.6.0'da softAP + WiFi.begin() çakışma sorunu)
     if (cfgWifiStaAuto && strlen(wifiStaSSID) > 0 && WiFi.softAPIP() != IPAddress(0, 0, 0, 0)) {
+        WiFi.setHostname(DEFAULT_DEVICE_NAME); // router'ın bağlı cihazlar listesinde görünecek ad
         WiFi.begin(wifiStaSSID, wifiStaPass);
         printStatusMessage(calibMode, "WIFI_STA_CONNECTING");
         // STA bağlantısı başladı — kırmızı LED hemen yak (RGB blink'lerden önce görünsün)
@@ -2362,7 +2359,7 @@ void setupBLE() {
     BTstack.setBLEDeviceDisconnectedCallback(onBLEDeviceDisconnected);
     BTstack.setGATTCharacteristicWrite(onBLECharacteristicWrite);
 
-    BTstack.setup("PiColor");
+    BTstack.setup(DEFAULT_DEVICE_NAME);
 
     BTstack.addGATTService(new UUID("6E400001-B5A3-F393-E0A9-E50E24DCCA9E"));
     nusTxHandle = BTstack.addGATTCharacteristicDynamic(
