@@ -154,7 +154,19 @@ function Invoke-PiColorQuery ([string]$cmd) {
         $client = New-Object Net.Sockets.TcpClient
         $task   = $client.ConnectAsync($HostName, $Port)
 
-        if (-not $task.Wait($Timeout * 1000)) {
+        $connected = $false
+        try {
+            $connected = $task.Wait($Timeout * 1000)
+        } catch {
+            $inner = $_.Exception
+            if ($inner -is [System.AggregateException] -and $inner.InnerException) {
+                $inner = $inner.InnerException
+            }
+            $res.ErrorMsg = $inner.Message -replace "`r`n", " "
+            return $res
+        }
+
+        if (-not $connected) {
             $res.ErrorMsg = "TIMEOUT (baglanti $Timeout sn)"
             return $res
         }
