@@ -2353,9 +2353,9 @@ void setup() {
 #endif
     serialReady = true;
 
-    // TCS LED (aktif-LOW) başlangıçta kapalı — HIGH = off
+    // TCS LED başlangıçta kapalı — aktif-HIGH: LOW = off
     pinMode(TCS_LED_PIN, OUTPUT);
-    digitalWrite(TCS_LED_PIN, HIGH);
+    digitalWrite(TCS_LED_PIN, LOW);
 
     // I2C — RP2350 üzerinde SDA=4, SCL=5
     Wire.setSDA(4);
