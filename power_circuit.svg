@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="940" height="645" xmlns="http://www.w3.org/2000/svg">
+  <rect width="940" height="645" fill="#0d1117"/>
+
+  <!-- Başlık -->
+  <text x="470" y="28" text-anchor="middle" fill="#c9d1d9" font-size="15" font-weight="bold" font-family="sans-serif">PiColor — Pil + USB Güç Seçim Devresi (P-MOSFET)</text>
+  <text x="470" y="46" text-anchor="middle" fill="#6e7681" font-size="11" font-family="sans-serif">Raspberry Pi Pico 2W  ·  Li-ion 4.2V  ·  Diyotsuz Güç Seçimi  ·  BMS Korumalı</text>
+
+  <!-- ── VBUS rail (5V kırmızı) ── -->
+  <line x1="90" y1="85" x2="880" y2="85" stroke="#ef5350" stroke-width="3" stroke-linecap="round"/>
+  <text x="95" y="77" fill="#ef5350" font-size="11" font-family="sans-serif" font-weight="bold">VBUS  5V</text>
+
+  <!-- ── GND rail (gri) ── -->
+  <line x1="90" y1="575" x2="880" y2="575" stroke="#546e7a" stroke-width="3" stroke-linecap="round"/>
+  <text x="95" y="592" fill="#546e7a" font-size="11" font-family="sans-serif" font-weight="bold">GND</text>
+
+  <!-- ══════════ USB KONNEKTÖR ══════════ -->
+  <rect x="28" y="228" width="60" height="104" rx="6" fill="#0d2647" stroke="#42a5f5" stroke-width="2"/>
+  <text x="58" y="260" text-anchor="middle" fill="#ffffff" font-size="12" font-family="sans-serif" font-weight="bold">USB</text>
+  <text x="58" y="275" text-anchor="middle" fill="#90caf9" font-size="9" font-family="sans-serif">Type-C</text>
+  <text x="58" y="294" text-anchor="middle" fill="#ef5350" font-size="13" font-family="sans-serif" font-weight="bold">5V</text>
+  <!-- USB VBUS pini → rai -->
+  <line x1="88" y1="250" x2="118" y2="250" stroke="#ef5350" stroke-width="2"/>
+  <line x1="118" y1="250" x2="118" y2="85" stroke="#ef5350" stroke-width="2"/>
+  <circle cx="118" cy="85" r="4" fill="#ef5350"/>
+  <!-- USB GND pini → rail -->
+  <line x1="88" y1="308" x2="118" y2="308" stroke="#546e7a" stroke-width="2"/>
+  <line x1="118" y1="308" x2="118" y2="575" stroke="#546e7a" stroke-width="2"/>
+
+  <!-- ══════════ TP4056 ŞARJ IC ══════════ -->
+  <rect x="138" y="375" width="104" height="70" rx="5" fill="#1b3a22" stroke="#4caf50" stroke-width="1.5"/>
+  <text x="190" y="397" text-anchor="middle" fill="#ffffff" font-size="12" font-family="sans-serif" font-weight="bold">TP4056</text>
+  <text x="190" y="413" text-anchor="middle" fill="#a5d6a7" font-size="10" font-family="sans-serif">Şarj IC</text>
+  <text x="190" y="430" text-anchor="middle" fill="#81c784" font-size="9" font-family="sans-serif">1A / CC-CV / 4.2V</text>
+  <!-- TP4056 VIN ← VBUS (kesik, şarj yolu) -->
+  <line x1="188" y1="375" x2="188" y2="85" stroke="#ef5350" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <circle cx="188" cy="85" r="4" fill="#ef5350"/>
+  <!-- TP4056 GND -->
+  <line x1="160" y1="445" x2="160" y2="575" stroke="#546e7a" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <!-- BAT+ -->
+  <line x1="242" y1="393" x2="268" y2="393" stroke="#4caf50" stroke-width="2"/>
+  <text x="249" y="388" fill="#4caf50" font-size="8" font-family="sans-serif">BAT+</text>
+  <!-- BAT- -->
+  <line x1="242" y1="432" x2="268" y2="432" stroke="#4caf50" stroke-width="2"/>
+  <text x="249" y="447" fill="#4caf50" font-size="8" font-family="sans-serif">BAT−</text>
+
+  <!-- ══════════ LI-ION PIL ══════════ -->
+  <rect x="268" y="364" width="56" height="92" rx="4" fill="#2a1f00" stroke="#ffa726" stroke-width="1.5"/>
+  <!-- pozitif terminal kapağı -->
+  <rect x="283" y="357" width="26" height="9" rx="2" fill="#ffa726"/>
+  <text x="296" y="356" text-anchor="middle" fill="#ffa726" font-size="12" font-family="sans-serif" font-weight="bold">+</text>
+  <!-- hücre çizgileri -->
+  <line x1="273" y1="390" x2="319" y2="390" stroke="#ffa726" stroke-width="1" opacity="0.35"/>
+  <line x1="273" y1="408" x2="319" y2="408" stroke="#ffa726" stroke-width="1" opacity="0.35"/>
+  <line x1="273" y1="426" x2="319" y2="426" stroke="#ffa726" stroke-width="1" opacity="0.35"/>
+  <text x="296" y="420" text-anchor="middle" fill="#ffa726" font-size="10" font-family="sans-serif" font-weight="bold">Li-ion</text>
+  <text x="296" y="475" text-anchor="middle" fill="#ffa726" font-size="10" font-family="sans-serif">4.2V max</text>
+  <!-- negatif → GND -->
+  <line x1="296" y1="456" x2="296" y2="575" stroke="#546e7a" stroke-width="2"/>
+
+  <!-- ══════════ BMS ══════════ -->
+  <rect x="348" y="367" width="104" height="74" rx="5" fill="#2a1040" stroke="#9c27b0" stroke-width="1.5"/>
+  <text x="400" y="390" text-anchor="middle" fill="#ffffff" font-size="12" font-family="sans-serif" font-weight="bold">BMS</text>
+  <text x="400" y="406" text-anchor="middle" fill="#ce93d8" font-size="9" font-family="sans-serif">Aşırı deşarj koruma</text>
+  <text x="400" y="420" text-anchor="middle" fill="#ce93d8" font-size="9" font-family="sans-serif">Kısa devre koruma</text>
+  <text x="400" y="434" text-anchor="middle" fill="#ce93d8" font-size="9" font-family="sans-serif">Aşırı akım koruma</text>
+  <!-- Pil+ → BMS giriş -->
+  <line x1="324" y1="382" x2="348" y2="382" stroke="#ffa726" stroke-width="2"/>
+  <!-- BMS GND -->
+  <line x1="368" y1="441" x2="368" y2="575" stroke="#546e7a" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <!-- BMS çıkış → Q1 Source (sağa, sonra yukarı, sonra sağa) -->
+  <line x1="452" y1="387" x2="485" y2="387" stroke="#ffa726" stroke-width="2"/>
+  <line x1="485" y1="387" x2="485" y2="182" stroke="#ffa726" stroke-width="2"/>
+  <line x1="485" y1="182" x2="548" y2="182" stroke="#ffa726" stroke-width="2"/>
+  <text x="491" y="300" fill="#ffa726" font-size="10" font-family="sans-serif">Pil</text>
+  <text x="491" y="313" fill="#ffa726" font-size="10" font-family="sans-serif">4.2V</text>
+
+  <!-- ══════════ Q1  P-MOSFET ══════════ -->
+  <circle cx="582" cy="268" r="42" fill="#0d2136" stroke="#29b6f6" stroke-width="2"/>
+  <text x="582" y="263" text-anchor="middle" fill="#29b6f6" font-size="13" font-family="sans-serif" font-weight="bold">Q1</text>
+  <text x="582" y="279" text-anchor="middle" fill="#4fc3f7" font-size="10" font-family="sans-serif">P-MOS</text>
+  <!-- Source (üst) -->
+  <line x1="582" y1="182" x2="582" y2="226" stroke="#ffa726" stroke-width="2.5"/>
+  <!-- P-channel ok (Source'dan içe) -->
+  <polygon points="575,214 589,214 582,226" fill="#ffa726"/>
+  <text x="597" y="195" fill="#ffa726" font-size="12" font-family="sans-serif" font-weight="bold">S</text>
+  <!-- Drain (alt) -->
+  <line x1="582" y1="310" x2="582" y2="492" stroke="#42a5f5" stroke-width="2.5"/>
+  <text x="597" y="325" fill="#42a5f5" font-size="12" font-family="sans-serif" font-weight="bold">D</text>
+  <!-- Gate (sol) -->
+  <line x1="540" y1="268" x2="500" y2="268" stroke="#e0e0e0" stroke-width="2"/>
+  <text x="503" y="260" fill="#e0e0e0" font-size="12" font-family="sans-serif" font-weight="bold">G</text>
+
+  <!-- ══════════ GATE KONTROL DİRENÇLERİ ══════════ -->
+  <!-- Gate düğüm noktası -->
+  <circle cx="500" cy="268" r="4" fill="#ffffff"/>
+
+  <!-- R1: VBUS → Gate, 10 kΩ -->
+  <line x1="500" y1="85" x2="500" y2="132" stroke="#ef5350" stroke-width="2"/>
+  <circle cx="500" cy="85" r="4" fill="#ef5350"/>
+  <!-- R1 zigzag -->
+  <polyline points="500,132 489,142 511,152 489,162 511,172 489,182 500,192"
+            fill="none" stroke="#e0e0e0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- R1 etiket -->
+  <rect x="515" y="148" width="52" height="28" rx="3" fill="#0d1117" opacity="0.9"/>
+  <text x="541" y="162" text-anchor="middle" fill="#e0e0e0" font-size="10" font-family="sans-serif" font-weight="bold">R1</text>
+  <text x="541" y="174" text-anchor="middle" fill="#8b949e" font-size="9" font-family="sans-serif">10 kΩ</text>
+  <!-- R1 alt → Gate düğüm -->
+  <line x1="500" y1="192" x2="500" y2="268" stroke="#e0e0e0" stroke-width="2"/>
+
+  <!-- R2: Gate → GND, 100 kΩ -->
+  <line x1="500" y1="268" x2="500" y2="308" stroke="#e0e0e0" stroke-width="2"/>
+  <!-- R2 zigzag -->
+  <polyline points="500,308 489,318 511,328 489,338 511,348 489,358 500,368"
+            fill="none" stroke="#e0e0e0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- R2 etiket -->
+  <rect x="515" y="324" width="60" height="28" rx="3" fill="#0d1117" opacity="0.9"/>
+  <text x="545" y="338" text-anchor="middle" fill="#e0e0e0" font-size="10" font-family="sans-serif" font-weight="bold">R2</text>
+  <text x="545" y="350" text-anchor="middle" fill="#8b949e" font-size="9" font-family="sans-serif">100 kΩ</text>
+  <!-- R2 alt → GND rail -->
+  <line x1="500" y1="368" x2="500" y2="575" stroke="#546e7a" stroke-width="2"/>
+  <circle cx="500" cy="575" r="4" fill="#546e7a"/>
+
+  <!-- ══════════ VSYS HATTI ══════════ -->
+  <line x1="582" y1="492" x2="775" y2="492" stroke="#42a5f5" stroke-width="2.5"/>
+  <text x="660" y="482" text-anchor="middle" fill="#42a5f5" font-size="11" font-family="sans-serif" font-weight="bold">VSYS</text>
+  <circle cx="648" cy="492" r="4" fill="#42a5f5"/>
+  <circle cx="775" cy="492" r="4" fill="#42a5f5"/>
+
+  <!-- ══════════ C1 — 100 µF ══════════ -->
+  <line x1="648" y1="492" x2="648" y2="513" stroke="#42a5f5" stroke-width="2"/>
+  <line x1="630" y1="513" x2="666" y2="513" stroke="#e0e0e0" stroke-width="3.5" stroke-linecap="round"/>
+  <line x1="630" y1="524" x2="666" y2="524" stroke="#e0e0e0" stroke-width="3.5" stroke-linecap="round"/>
+  <line x1="648" y1="524" x2="648" y2="575" stroke="#546e7a" stroke-width="2"/>
+  <circle cx="648" cy="575" r="4" fill="#546e7a"/>
+  <text x="670" y="515" fill="#e0e0e0" font-size="10" font-family="sans-serif">+  100µF</text>
+  <text x="670" y="528" fill="#6e7681" font-size="9" font-family="sans-serif">10V</text>
+
+  <!-- ══════════ PICO 2W BLOK ══════════ -->
+  <rect x="775" y="108" width="148" height="448" rx="8" fill="#0a1929" stroke="#29b6f6" stroke-width="2"/>
+  <text x="849" y="136" text-anchor="middle" fill="#29b6f6" font-size="14" font-family="sans-serif" font-weight="bold">Pico 2W</text>
+  <text x="849" y="152" text-anchor="middle" fill="#4fc3f7" font-size="10" font-family="sans-serif">RP2350</text>
+
+  <!-- WiFi/BLE çip -->
+  <rect x="805" y="163" width="88" height="40" rx="3" fill="#122436" stroke="#1e5276" stroke-width="1"/>
+  <text x="849" y="181" text-anchor="middle" fill="#29b6f6" font-size="9" font-family="sans-serif">WiFi / BLE</text>
+  <text x="849" y="196" text-anchor="middle" fill="#4fc3f7" font-size="8" font-family="sans-serif">CYW43439</text>
+
+  <!-- VBUS pini -->
+  <rect x="775" y="237" width="22" height="16" fill="#1b3a22" stroke="#4caf50" stroke-width="1" rx="2"/>
+  <text x="803" y="249" fill="#ef5350" font-size="10" font-family="sans-serif">VBUS  (pin 40)</text>
+  <!-- VBUS hattı Pico'ya -->
+  <line x1="755" y1="85" x2="755" y2="245" stroke="#ef5350" stroke-width="2"/>
+  <line x1="755" y1="245" x2="775" y2="245" stroke="#ef5350" stroke-width="2"/>
+  <circle cx="755" cy="85" r="4" fill="#ef5350"/>
+  <!-- Pico içi VBUS → diyot (kesik) -->
+  <line x1="849" y1="245" x2="849" y2="285" stroke="#546e7a" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <!-- dahili Schottky diyot sembolü -->
+  <text x="849" y="278" text-anchor="middle" fill="#546e7a" font-size="8" font-family="sans-serif">dahili Schottky</text>
+  <polygon points="840,288 858,288 849,302" fill="#546e7a"/>
+  <line x1="838" y1="302" x2="860" y2="302" stroke="#546e7a" stroke-width="2"/>
+  <line x1="849" y1="302" x2="849" y2="322" stroke="#546e7a" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <text x="863" y="318" fill="#8b949e" font-size="9" font-family="sans-serif">≈4.7V</text>
+
+  <!-- SMPS bloğu -->
+  <rect x="805" y="335" width="88" height="46" rx="4" fill="#122436" stroke="#1565c0" stroke-width="1.5"/>
+  <text x="849" y="356" text-anchor="middle" fill="#4fc3f7" font-size="11" font-family="sans-serif" font-weight="bold">SMPS</text>
+  <text x="849" y="371" text-anchor="middle" fill="#42a5f5" font-size="10" font-family="sans-serif">→ 3.3V</text>
+  <!-- diyot → SMPS → VSYS pini (kesik) -->
+  <line x1="849" y1="322" x2="849" y2="335" stroke="#29b6f6" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <line x1="849" y1="381" x2="849" y2="492" stroke="#29b6f6" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <circle cx="849" cy="492" r="3" fill="#29b6f6"/>
+
+  <!-- 3.3V çıkış etiketleri -->
+  <text x="849" y="415" text-anchor="middle" fill="#66bb6a" font-size="9" font-family="sans-serif">→ TCS34725</text>
+  <text x="849" y="428" text-anchor="middle" fill="#66bb6a" font-size="9" font-family="sans-serif">→ NeoPixel (8 LED)</text>
+  <text x="849" y="441" text-anchor="middle" fill="#66bb6a" font-size="9" font-family="sans-serif">→ SD Kart</text>
+  <text x="849" y="454" text-anchor="middle" fill="#66bb6a" font-size="9" font-family="sans-serif">→ Rotary Encoder</text>
+
+  <!-- VSYS pini -->
+  <rect x="775" y="484" width="22" height="16" fill="#0d2136" stroke="#42a5f5" stroke-width="1" rx="2"/>
+  <text x="803" y="496" fill="#42a5f5" font-size="10" font-family="sans-serif">VSYS  (pin 39)</text>
+
+  <!-- GND pini -->
+  <rect x="775" y="514" width="22" height="16" fill="#0a1929" stroke="#546e7a" stroke-width="1" rx="2"/>
+  <text x="803" y="526" fill="#546e7a" font-size="10" font-family="sans-serif">GND   (pin 38)</text>
+  <line x1="775" y1="522" x2="755" y2="522" stroke="#546e7a" stroke-width="2"/>
+  <line x1="755" y1="522" x2="755" y2="575" stroke="#546e7a" stroke-width="2"/>
+  <circle cx="755" cy="575" r="4" fill="#546e7a"/>
+
+  <!-- ══════════ DURUM KUTULARI ══════════ -->
+  <!-- USB Bağlı -->
+  <rect x="30" y="492" width="222" height="82" rx="5" fill="#0d1f0d" stroke="#4caf50" stroke-width="1.5"/>
+  <text x="141" y="510" text-anchor="middle" fill="#81c784" font-size="11" font-family="sans-serif" font-weight="bold">USB Bağlı  (VBUS = 5V)</text>
+  <text x="40" y="526" fill="#8b949e" font-size="9" font-family="sans-serif">Gate ≈ 4.55V  →  Vgs = +0.35V</text>
+  <text x="40" y="540" fill="#ef9a9a" font-size="9" font-family="sans-serif">▶  Q1 KAPALI  —  pil izole edildi</text>
+  <text x="40" y="554" fill="#a5d6a7" font-size="9" font-family="sans-serif">▶  VSYS ≈ 4.7V  (dahili Schottky)</text>
+  <text x="40" y="568" fill="#a5d6a7" font-size="9" font-family="sans-serif">▶  TP4056 pili şarj ediyor</text>
+
+  <!-- USB Yok -->
+  <rect x="264" y="492" width="222" height="82" rx="5" fill="#1f1500" stroke="#ffa726" stroke-width="1.5"/>
+  <text x="375" y="510" text-anchor="middle" fill="#ffa726" font-size="11" font-family="sans-serif" font-weight="bold">USB Yok  (Pil Modu)</text>
+  <text x="274" y="526" fill="#8b949e" font-size="9" font-family="sans-serif">Gate = 0V  →  Vgs = −4.2V</text>
+  <text x="274" y="540" fill="#a5d6a7" font-size="9" font-family="sans-serif">▶  Q1 AÇIK  —  pil devreye girer</text>
+  <text x="274" y="554" fill="#a5d6a7" font-size="9" font-family="sans-serif">▶  VSYS = 4.2V  (pil direkt)</text>
+  <text x="274" y="568" fill="#4fc3f7" font-size="9" font-family="sans-serif">▶  config.json:  pil_modu = true</text>
+
+  <!-- Bileşen listesi -->
+  <rect x="498" y="600" width="430" height="38" rx="5" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+  <text x="713" y="615" text-anchor="middle" fill="#8b949e" font-size="10" font-family="sans-serif">Q1: AO3407 (SMD)  /  IRF9540 (DIP)   ·   R1: 10 kΩ   ·   R2: 100 kΩ   ·   C1: 100µF 10V</text>
+  <text x="713" y="630" text-anchor="middle" fill="#6e7681" font-size="9" font-family="sans-serif">BMS: DW01A + FS8205A   ·   Şarj IC: TP4056  (1A, R_prog ile akım ayarı)</text>
+
+  <!-- Lejant: Renk kodları -->
+  <rect x="498" y="492" width="192" height="100" rx="5" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+  <text x="594" y="510" text-anchor="middle" fill="#c9d1d9" font-size="10" font-family="sans-serif" font-weight="bold">Hat Renk Kodu</text>
+  <line x1="510" y1="522" x2="535" y2="522" stroke="#ef5350" stroke-width="3"/>
+  <text x="540" y="526" fill="#ef5350" font-size="10" font-family="sans-serif">VBUS  5V  (USB)</text>
+  <line x1="510" y1="540" x2="535" y2="540" stroke="#ffa726" stroke-width="3"/>
+  <text x="540" y="544" fill="#ffa726" font-size="10" font-family="sans-serif">Pil  4.2V</text>
+  <line x1="510" y1="558" x2="535" y2="558" stroke="#42a5f5" stroke-width="3"/>
+  <text x="540" y="562" fill="#42a5f5" font-size="10" font-family="sans-serif">VSYS  (sistem)</text>
+  <line x1="510" y1="576" x2="535" y2="576" stroke="#546e7a" stroke-width="3"/>
+  <text x="540" y="580" fill="#546e7a" font-size="10" font-family="sans-serif">GND</text>
+</svg>
