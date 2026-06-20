@@ -84,10 +84,26 @@ $consecutiveFail = 0
 $lastSuccessTime = $null
 $batteryDeadTime = $null
 $lastWifi        = "?"
+$resolvedHost    = $HostName
 
 if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
 
+# .local adresleri icin mDNS ile IP coz (.NET DNS dogrudan mDNS desteklemez)
+if ($HostName -match '\.local$') {
+    $dns = Resolve-DnsName -Name $HostName -Type A -ErrorAction SilentlyContinue
+    if ($dns) {
+        $resolvedHost = ($dns | Where-Object { $_.Type -eq 'A' } | Select-Object -First 1).IPAddress
+    } else {
+        Write-Host "  [!] '$HostName' cozumlenemedi. Bonjour yuklu mu?" -ForegroundColor Red
+        Write-Host "  [!] IP adresini dogrudan kullanin: -HostName 192.168.x.x" -ForegroundColor Yellow
+        exit 1
+    }
+}
+
 Write-Host ("  {0,-20} {1}" -f "Hedef:",           "$HostName`:$Port")            -ForegroundColor White
+if ($resolvedHost -ne $HostName) {
+    Write-Host ("  {0,-20} {1}" -f "Cozumlenen IP:",   "$resolvedHost`:$Port")     -ForegroundColor DarkGray
+}
 Write-Host ("  {0,-20} {1}" -f "Aralik:",           "$Interval saniye")            -ForegroundColor White
 Write-Host ("  {0,-20} {1}" -f "Komut:",            $Command)                      -ForegroundColor White
 Write-Host ("  {0,-20} {1}" -f "Zaman asimi:",      "$Timeout sn")                 -ForegroundColor White
@@ -152,7 +168,7 @@ function Invoke-PiColorQuery ([string]$cmd) {
 
     try {
         $client = New-Object Net.Sockets.TcpClient
-        $ar   = $client.BeginConnect($HostName, $Port, $null, $null)
+        $ar   = $client.BeginConnect($resolvedHost, $Port, $null, $null)
         $done = $ar.AsyncWaitHandle.WaitOne($Timeout * 1000, $false)
 
         if (-not $done) {
