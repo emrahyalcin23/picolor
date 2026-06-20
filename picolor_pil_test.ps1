@@ -48,9 +48,9 @@
 #>
 
 param(
-    [string] $HostName            = "picolor.local",
+    [Parameter(Position=0)] [string] $HostName   = "picolor.local",
     [int]    $Port                = 8266,
-    [int]    $Interval            = 30,
+    [Parameter(Position=1)] [int]    $Interval   = 30,
     [string] $LogDir              = $PSScriptRoot,
     [string] $Command             = "OKU_1",
     [int]    $Timeout             = 8,
@@ -325,9 +325,9 @@ try {
         $durStr  = Format-Duration $elapsed
         $saat    = (Get-Date).ToString("HH:mm:ss")
 
-        # Ilk sorguda ve her StatusInterval'da bir DURUM gonder
+        # Her StatusInterval'da bir DURUM gonder (OKU_1 de wifi= alani dolduruyor)
         $sorguKomutu = $Command
-        if ($iteration -eq 1 -or ($StatusInterval -gt 0 -and ($iteration % $StatusInterval) -eq 0)) {
+        if ($StatusInterval -gt 0 -and ($iteration % $StatusInterval) -eq 0) {
             $sorguKomutu = "DURUM"
         }
 
