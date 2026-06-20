@@ -152,24 +152,24 @@ function Invoke-PiColorQuery ([string]$cmd) {
 
     try {
         $client = New-Object Net.Sockets.TcpClient
-        $task   = $client.ConnectAsync($HostName, $Port)
+        $ar   = $client.BeginConnect($HostName, $Port, $null, $null)
+        $done = $ar.AsyncWaitHandle.WaitOne($Timeout * 1000, $false)
 
-        $connected = $false
-        try {
-            $connected = $task.Wait($Timeout * 1000)
-        } catch {
-            $inner = $_.Exception
-            if ($inner -is [System.AggregateException] -and $inner.InnerException) {
-                $inner = $inner.InnerException
-            }
-            $res.ErrorMsg = $inner.Message -replace "`r`n", " "
-            return $res
-        }
-
-        if (-not $connected) {
+        if (-not $done) {
+            try { $client.EndConnect($ar) } catch {}
             $res.ErrorMsg = "TIMEOUT (baglanti $Timeout sn)"
             return $res
         }
+
+        try {
+            $client.EndConnect($ar)
+        } catch {
+            $ex = $_.Exception
+            while ($ex.InnerException) { $ex = $ex.InnerException }
+            $res.ErrorMsg = $ex.Message -replace "`r`n", " "
+            return $res
+        }
+
         if (-not $client.Connected) {
             $res.ErrorMsg = "BAGLANTI REDDEDILDI"
             return $res
@@ -203,7 +203,9 @@ function Invoke-PiColorQuery ([string]$cmd) {
         if (-not $res.OK) { $res.ErrorMsg = "TIMEOUT (yanit $Timeout sn)" }
 
     } catch {
-        $res.ErrorMsg = $_.Exception.Message -replace "`r`n", " "
+        $ex = $_.Exception
+        while ($ex.InnerException) { $ex = $ex.InnerException }
+        $res.ErrorMsg = $ex.Message -replace "`r`n", " "
     } finally {
         try { if ($client) { $client.Close() } } catch {}
         $sw.Stop()
