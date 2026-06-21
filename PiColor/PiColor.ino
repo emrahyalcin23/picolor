@@ -2271,7 +2271,8 @@ static void applyDhcpHostname() {
     { struct netif *n; NETIF_FOREACH(n) { if (ip4_addr_get_u32(netif_ip4_addr(n)) == staIPu32) { sta = n; break; } } }
     if (sta) {
         netif_set_hostname(sta, g_wifiHostname);  // STA netif hostname'ini ayarla
-        dhcp_renew(sta);                           // Option 12 ile DHCPREQUEST gönder
+        dhcp_stop(sta);                            // DHCP istemcisini durdur
+        dhcp_start(sta);                           // Yeni DISCOVER gönder — option 12 dahil
         g_hostnameApplied = true;
     }
     cyw43_arch_lwip_end();
@@ -2345,6 +2346,13 @@ void clearWiFiCredentials() {
  * STA bağlantısı başlarsa NeoPixel kırmızı yanarak handleWiFiReconnect()'i bekler.
  */
 void setupWiFi() {
+    // Hostname'i CYW43 başlamadan önce arduino-pico WiFi sınıfına kaydet.
+    // arduino-pico bu değeri saklar; STA netifi DHCP başlatmadan önce uygular.
+    if (g_wifiHostname[0] == '\0') {
+        sanitizeHostname(DEFAULT_DEVICE_NAME, g_wifiHostname, sizeof(g_wifiHostname));
+    }
+    WiFi.setHostname(g_wifiHostname);
+
     // AP başlat — CYW43 default IP 192.168.4.1 kullanır (softAPConfig arduino-pico 5.6.0'da çalışmıyor)
     WiFi.softAP(cfgWifiApSSID, cfgWifiApPass);
 
