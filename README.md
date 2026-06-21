@@ -277,6 +277,82 @@ User command history (optional): `/user_log.csv` — `timestamp, username, clien
 
 ---
 
+## Battery Life Test Tool
+
+`picolor_pil_test.ps1` is a Windows PowerShell 5.1 script that connects to PiColor over WiFi TCP, queries color readings at a fixed interval, and logs the results to a CSV file. It is designed to measure battery runtime when the device is running on battery power.
+
+### Requirements
+
+- Windows 10 or later, PowerShell 5.1
+- PiColor reachable over WiFi (AP mode or home network STA mode)
+- No additional software required
+
+### Quick Start
+
+```powershell
+# Auto-discover device on local network
+.\picolor_pil_test.ps1
+
+# Specify IP directly, query every 30 seconds
+.\picolor_pil_test.ps1 -HostName 192.168.1.50 30
+
+# Connect via the device's own access point
+.\picolor_pil_test.ps1 -HostName 192.168.4.1 30
+
+# 60-second interval, save logs to a custom folder
+.\picolor_pil_test.ps1 -Interval 60 -LogDir "C:\BatteryTests"
+```
+
+### Parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `HostName` | `picolor.local` | Device IP address or hostname |
+| `Interval` | `30` | Seconds between queries |
+| `Command` | `OKU_1` | PiColor command sent each cycle (1-minute average) |
+| `Port` | `8266` | TCP port |
+| `Timeout` | `8` | Connection and read timeout in seconds |
+| `MaxConsecutiveFail` | `5` | Stop after N consecutive failures and report battery life |
+| `StatusInterval` | `10` | Also send `DURUM` every N queries |
+| `LogDir` | script folder | Directory where the CSV log file is saved |
+
+### Device Discovery
+
+When `HostName` ends in `.local`, the script attempts resolution in this order:
+
+1. **mDNS** via `Resolve-DnsName picolor.local` — works when Bonjour is installed.
+2. **Ping** (`ping picolor.local`) — uses Windows name resolution (same path as PuTTY).
+3. **Subnet TCP scan** — connects asynchronously to all 254 addresses on every local subnet and identifies PiColor by its TCP greeting (`TCP_CONNECTED=PICOLOR`).
+
+Direct IP addresses (e.g. `192.168.1.50`, `192.168.4.1`) bypass discovery entirely.
+
+### Console Output
+
+```
+HH:MM:SS  HH:MM:SS  #NNNN  [OK]   XXms  <response>          WiFiStatus
+HH:MM:SS  HH:MM:SS  #NNNN  [ER]     0ms  <error message>
+```
+
+Columns: current time, elapsed since start, query counter, status, response time, response content.
+
+### CSV Log
+
+A file named `picolor_pil_YYYYMMDD_HHMMSS.csv` is created automatically in the script folder (or `LogDir`).
+
+| Column | Description |
+|---|---|
+| `zaman` | Timestamp of the query (HH:MM:SS) |
+| `sure_sn` | Elapsed time from start (HH:MM:SS) |
+| `sorgu_no` | Query sequence number |
+| `durum` | `OK` or `HATA` (error) |
+| `yanit_ms` | Round-trip response time in milliseconds |
+| `R, G, B` | Normalized color values (0–100) |
+| `wifi` | WiFi status field from device response |
+| `meta` | Additional fields from device response (lux, color temp, etc.) |
+| `ham_yanit` | Full raw response line received from device |
+
+---
+
 ---
 
 # PiColor [TÜRKÇE]
@@ -555,3 +631,79 @@ SD kart takılıysa cihaz:
 CSV sütunları: `timestamp_ms, raw_r, raw_g, raw_b, raw_c, proc_r, proc_g, proc_b, lux, color_temp_k, wR, wG, wB, wL, state, mode`
 
 İsteğe bağlı kullanıcı komut geçmişi: `/user_log.csv` — `timestamp, username, client_type, command`. WiFi şifreleri `***` olarak maskelenir.
+
+---
+
+## Pil Ömrü Test Aracı
+
+`picolor_pil_test.ps1`, PiColor cihazına WiFi TCP üzerinden belirli aralıklarla bağlanarak renk ölçümlerini sorgulayan ve sonuçları CSV dosyasına kaydeden bir Windows PowerShell 5.1 scriptidir. Cihazın pil ile çalıştığı durumlarda pil ömrünü ölçmek için tasarlanmıştır.
+
+### Gereksinimler
+
+- Windows 10 veya üzeri, PowerShell 5.1
+- PiColor'a WiFi üzerinden erişim (AP modu veya ev ağı STA modu)
+- Ek yazılım gerekmez
+
+### Hızlı Başlangıç
+
+```powershell
+# Cihazı otomatik bul (mDNS -> ping -> subnet tarama)
+.\picolor_pil_test.ps1
+
+# IP adresini doğrudan girerek 30 saniyede bir sorgula
+.\picolor_pil_test.ps1 -HostName 192.168.1.50 30
+
+# Cihazın kendi erişim noktasına bağlan
+.\picolor_pil_test.ps1 -HostName 192.168.4.1 30
+
+# 60 saniye aralık, log dosyasını özel klasöre kaydet
+.\picolor_pil_test.ps1 -Interval 60 -LogDir "C:\PilTestleri"
+```
+
+### Parametreler
+
+| Parametre | Varsayılan | Açıklama |
+|---|---|---|
+| `HostName` | `picolor.local` | Cihaz IP adresi veya sunucu adı |
+| `Interval` | `30` | Sorgular arası bekleme süresi (saniye) |
+| `Command` | `OKU_1` | Her döngüde gönderilen PiColor komutu (1 dakika ortalaması) |
+| `Port` | `8266` | TCP port numarası |
+| `Timeout` | `8` | Bağlantı ve yanıt zaman aşımı (saniye) |
+| `MaxConsecutiveFail` | `5` | Arka arkaya N hata sonrası pil ömrünü raporla ve dur |
+| `StatusInterval` | `10` | Her N. sorguda bir ek `DURUM` komutu gönder |
+| `LogDir` | script klasörü | CSV log dosyasının kaydedileceği klasör |
+
+### Cihaz Keşfi
+
+`HostName` `.local` ile bitiyorsa script şu sırayla çözümleme dener:
+
+1. **mDNS** — `Resolve-DnsName picolor.local` ile sorgu (Bonjour kuruluysa çalışır).
+2. **Ping** — `ping picolor.local` (Windows isim çözümleme, PuTTY ile aynı yol).
+3. **Subnet TCP tarama** — Yerel subnetin 254 adresine eş zamanlı olarak bağlantı dener; TCP karşılama mesajındaki `TCP_CONNECTED=PICOLOR` yazısıyla cihazı tanır.
+
+Doğrudan IP adresleri (`192.168.1.50`, `192.168.4.1` vb.) keşif aşamasını atlar.
+
+### Konsol Çıktısı
+
+```
+SS:DD:SS  SS:DD:SS  #NNNN  [OK]   XXms  <yanit>             WiFiDurumu
+SS:DD:SS  SS:DD:SS  #NNNN  [ER]     0ms  <hata mesaji>
+```
+
+Sütunlar: sorgu saati, başlangıçtan geçen süre, sorgu sayacı, durum, yanıt süresi, yanıt içeriği.
+
+### CSV Log
+
+Script klasöründe (veya `LogDir`'de) `picolor_pil_YYYYAAGG_SSDDSS.csv` adında bir dosya otomatik olarak oluşturulur.
+
+| Sütun | Açıklama |
+|---|---|
+| `zaman` | Sorgu zaman damgası (SS:DD:SS) |
+| `sure_sn` | Başlangıçtan geçen süre (SS:DD:SS) |
+| `sorgu_no` | Sorgu sıra numarası |
+| `durum` | `OK` veya `HATA` |
+| `yanit_ms` | Gidiş-dönüş yanıt süresi (milisaniye) |
+| `R, G, B` | Normalize renk değerleri (0–100) |
+| `wifi` | Cihaz yanıtından gelen WiFi durum alanı |
+| `meta` | Cihaz yanıtından gelen ek alanlar (lüks, renk sıcaklığı vb.) |
+| `ham_yanit` | Cihazdan alınan tam ham yanıt satırı |

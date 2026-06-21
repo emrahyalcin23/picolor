@@ -2158,6 +2158,7 @@ void changeTcpPort(uint16_t newPort) {
  */
 void reconnectWiFiSTA() {
     if (strlen(wifiStaSSID) > 0) {
+        WiFi.setHostname(DEFAULT_DEVICE_NAME);
         WiFi.begin(wifiStaSSID, wifiStaPass);
         printStatusMessage(calibMode, "WIFI_STA_RECONNECTING");
     } else {
@@ -2429,6 +2430,7 @@ void handleWiFiReconnect(unsigned long currentMillis) {
         staReconnectAttempts = 0;
     } else {
         if (cfgPilModu && staReconnectAttempts >= 3) return; // pil modu: deneme limitine ulaşıldı
+        WiFi.setHostname(DEFAULT_DEVICE_NAME);
         WiFi.begin(wifiStaSSID, wifiStaPass);
         staReconnectAttempts++;
         printStatusMessage(calibMode, "WIFI_STA_RECONNECTING");
