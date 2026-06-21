@@ -97,16 +97,22 @@ function Find-PiColorIP {
 
     $candidates = [System.Collections.Generic.List[string]]::new()
 
+    # Sadece ozel ag araliklari: 10.x, 172.16-31.x, 192.168.x
+    $isPrivate = {
+        param($ip)
+        $ip -match '^10\.' -or
+        $ip -match '^192\.168\.' -or
+        ($ip -match '^172\.(\d+)\.' -and [int]$Matches[1] -ge 16 -and [int]$Matches[1] -le 31)
+    }
+
     try {
         Get-NetNeighbor -AddressFamily IPv4 -State Reachable,Stale,Delay,Probe -ErrorAction Stop |
-            Where-Object { $_.IPAddress -notlike '169.254.*' -and
-                           $_.IPAddress -notlike '224.*'    -and
-                           $_.IPAddress -notlike '255.*' } |
+            Where-Object { & $isPrivate $_.IPAddress } |
             ForEach-Object { $candidates.Add($_.IPAddress) }
     } catch {
         (& arp -a) | ForEach-Object {
-            if ($_ -match '(\d+\.\d+\.\d+\.\d+)\s+[\w-]+\s+dynamic') {
-                $candidates.Add($Matches[1])
+            if ($_ -match '(\d+\.\d+\.\d+\.\d+)\s+[\w-]+\s+(dynamic|Dinamik)') {
+                if (& $isPrivate $Matches[1]) { $candidates.Add($Matches[1]) }
             }
         }
     }
