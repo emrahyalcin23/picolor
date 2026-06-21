@@ -333,6 +333,9 @@ static char     cfgLogFile[64]    = DEFAULT_LOG_FILE;
 static uint16_t cfgTcpPort        = DEFAULT_TCP_PORT;
 static bool     wifiEnabled       = true;   // WIRELESS_ENABLED=0/1 komutuyla oturum bazlı değişir
 static bool     g_hostnameApplied = false;  // DHCP hostname STA bağlantısı sonrası bir kez uygulanır
+// netif_set_hostname() pointer sakladığından buffer global olmalı —
+// WiFi.begin() sonrası DHCP asenkron çalışır, yerel değişken o ana kadar yok olur
+static char     g_wifiHostname[64] = {0};
 
 #define MAX_TCP_CLIENTS 4
 // Global nesne: arduino-pico'da WiFiServer::begin() güvenilir çalışması için global olmalı
@@ -2224,17 +2227,19 @@ static void sanitizeHostname(const char *src, char *dst, size_t dstMax) {
 /*
  * applyHostnameBeforeBegin
  * ------------------------
- * WiFi.setHostname() wrapperi dual AP+STA modda yanlış netif'e yazıyor.
- * WiFi.begin() öncesinde tüm netif'lere doğrudan lwIP ile hostname yaz;
- * DHCP ilk DISCOVER paketinden itibaren option 12 içerir, ikinci DHCP turu gerekmez.
+ * netif_set_hostname() pointer KOPYALAMAZ — sadece adresi saklar.
+ * Yerel char dizisi kullanmak dangling pointer yaratır: WiFi.begin() sonrası
+ * DHCP asenkron çalıştığında dizi çoktan yok olmuş olur ve lwIP çöp okur.
+ * g_wifiHostname global olduğundan ömrü programla birlikte devam eder.
  */
 static void applyHostnameBeforeBegin() {
-    char hn[64];
-    sanitizeHostname(DEFAULT_DEVICE_NAME, hn, sizeof(hn));
-    WiFi.setHostname(hn);               // wrapper da çağıralım (zarar vermez)
+    if (g_wifiHostname[0] == '\0') {
+        sanitizeHostname(DEFAULT_DEVICE_NAME, g_wifiHostname, sizeof(g_wifiHostname));
+    }
+    WiFi.setHostname(g_wifiHostname);
     cyw43_arch_lwip_begin();
     struct netif *n;
-    NETIF_FOREACH(n) { netif_set_hostname(n, hn); }
+    NETIF_FOREACH(n) { netif_set_hostname(n, g_wifiHostname); }
     cyw43_arch_lwip_end();
 }
 
