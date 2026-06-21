@@ -150,6 +150,16 @@
 #include <LEAmDNS.h>
 #include <lwip/netif.h>
 #include <lwip/dhcp.h>
+#include <lwip/opt.h>
+#ifdef LWIP_NETIF_HOSTNAME
+#  if LWIP_NETIF_HOSTNAME
+#    pragma message("LWIP_NETIF_HOSTNAME = 1 — DHCP hostname destekleniyor")
+#  else
+#    pragma message("LWIP_NETIF_HOSTNAME = 0 — DHCP hostname KAPALI (sorun bu!)")
+#  endif
+#else
+#  pragma message("LWIP_NETIF_HOSTNAME tanimlanmamis — DHCP hostname KAPALI")
+#endif
 #include <BTstackLib.h>
 extern "C" {
 #include "ble/att_server.h"
@@ -2246,9 +2256,10 @@ static void applyHostnameBeforeBegin() {
 /*
  * applyDhcpHostname
  * -----------------
- * Bağlantı kurulduktan sonra hafif sigorta: STA netif'ini IP ile bulup
- * dhcp_renew() ile bir REQUEST daha gönderiyor. IP kesintisi yok.
- * Hostname zaten ilk DISCOVER'da yer aldığından bu adım genellikle gereksiz.
+ * STA netif'i WiFi.begin() sırasında oluşturulur — applyHostnameBeforeBegin()
+ * o anda NETIF_FOREACH ile bulamaz çünkü henüz mevcut değildir.
+ * Bu yüzden bağlantı kurulduktan SONRA STA netif'i IP ile bulup hostname
+ * ayarlanır, ardından dhcp_renew() ile modemin client tablosunu güncelliyoruz.
  */
 static void applyDhcpHostname() {
     if (g_hostnameApplied) return;
@@ -2258,7 +2269,11 @@ static void applyDhcpHostname() {
     cyw43_arch_lwip_begin();
     struct netif *sta = NULL;
     { struct netif *n; NETIF_FOREACH(n) { if (ip4_addr_get_u32(netif_ip4_addr(n)) == staIPu32) { sta = n; break; } } }
-    if (sta) { dhcp_renew(sta); g_hostnameApplied = true; }
+    if (sta) {
+        netif_set_hostname(sta, g_wifiHostname);  // STA netif hostname'ini ayarla
+        dhcp_renew(sta);                           // Option 12 ile DHCPREQUEST gönder
+        g_hostnameApplied = true;
+    }
     cyw43_arch_lwip_end();
 }
 
