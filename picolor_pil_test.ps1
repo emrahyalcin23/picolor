@@ -88,20 +88,74 @@ $resolvedHost    = $HostName
 
 if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
 
-# .local adresleri icin mDNS ile IP coz (.NET DNS dogrudan mDNS desteklemez)
+# -----------------------------------------------------------------------------
+#  YARDIMCI: ARP tablosunu tarayarak PiColor cihazini bul
+#  Port 8266'ya baglanip selamlamada "TCP_CONNECTED=PICOLOR" araniyor.
+# -----------------------------------------------------------------------------
+function Find-PiColorIP {
+    Write-Host "  [~] PiColor agda araniyor (ARP taramasi)..." -ForegroundColor DarkYellow
+
+    $candidates = [System.Collections.Generic.List[string]]::new()
+
+    try {
+        Get-NetNeighbor -AddressFamily IPv4 -State Reachable,Stale,Delay,Probe -ErrorAction Stop |
+            Where-Object { $_.IPAddress -notlike '169.254.*' -and
+                           $_.IPAddress -notlike '224.*'    -and
+                           $_.IPAddress -notlike '255.*' } |
+            ForEach-Object { $candidates.Add($_.IPAddress) }
+    } catch {
+        (& arp -a) | ForEach-Object {
+            if ($_ -match '(\d+\.\d+\.\d+\.\d+)\s+[\w-]+\s+dynamic') {
+                $candidates.Add($Matches[1])
+            }
+        }
+    }
+
+    foreach ($ip in ($candidates | Select-Object -Unique)) {
+        try {
+            $c  = New-Object Net.Sockets.TcpClient
+            $ar = $c.BeginConnect($ip, $Port, $null, $null)
+            if (-not $ar.AsyncWaitHandle.WaitOne(500, $false)) {
+                try { $c.Close() } catch {}; continue
+            }
+            try { $c.EndConnect($ar) } catch { try { $c.Close() } catch {}; continue }
+            if (-not $c.Connected) { try { $c.Close() } catch {}; continue }
+
+            $ns = $c.GetStream(); $ns.ReadTimeout = 700
+            $buf = New-Object byte[] 512
+            try {
+                $n = $ns.Read($buf, 0, $buf.Length)
+                if ($n -gt 0 -and [Text.Encoding]::UTF8.GetString($buf, 0, $n) -like "*TCP_CONNECTED=PICOLOR*") {
+                    try { $c.Close() } catch {}
+                    return $ip
+                }
+            } catch {}
+            try { $c.Close() } catch {}
+        } catch {}
+    }
+    return $null
+}
+
+# Otomatik IP cozumleme: once mDNS, basarisizsa ARP taramasi
 if ($HostName -match '\.local$') {
     $dns = Resolve-DnsName -Name $HostName -Type A -ErrorAction SilentlyContinue
     if ($dns) {
         $resolvedHost = ($dns | Where-Object { $_.Type -eq 'A' } | Select-Object -First 1).IPAddress
     } else {
-        Write-Host "  [~] mDNS ile cozumlenemedi, dogrudan deneniyor..." -ForegroundColor DarkYellow
-        Write-Host "  [~] Hata alirsan IP ile baslat: -HostName 192.168.x.x" -ForegroundColor DarkYellow
+        $found = Find-PiColorIP
+        if ($found) {
+            $resolvedHost = $found
+        } else {
+            Write-Host "  [!] PiColor bulunamadi. Cihaz acik ve ayni agda mi?" -ForegroundColor Red
+            Write-Host "  [!] Manuel kullanim: -HostName 192.168.x.x" -ForegroundColor Yellow
+            exit 1
+        }
     }
 }
 
 Write-Host ("  {0,-20} {1}" -f "Hedef:",           "$HostName`:$Port")            -ForegroundColor White
 if ($resolvedHost -ne $HostName) {
-    Write-Host ("  {0,-20} {1}" -f "Cozumlenen IP:",   "$resolvedHost`:$Port")     -ForegroundColor DarkGray
+    Write-Host ("  {0,-20} {1}" -f "Bulunan IP:",      "$resolvedHost`:$Port")     -ForegroundColor Green
 }
 Write-Host ("  {0,-20} {1}" -f "Aralik:",           "$Interval saniye")            -ForegroundColor White
 Write-Host ("  {0,-20} {1}" -f "Komut:",            $Command)                      -ForegroundColor White
