@@ -158,12 +158,24 @@ function Find-PiColorIP {
     return $null
 }
 
-# Otomatik IP cozumleme: once mDNS, basarisizsa ARP taramasi
+# Otomatik IP cozumleme: once mDNS, sonra ping (winsock yolu), son carez subnet scan
 if ($HostName -match '\.local$') {
+    # 1) Resolve-DnsName (DNS Client servisi)
     $dns = Resolve-DnsName -Name $HostName -Type A -ErrorAction SilentlyContinue
     if ($dns) {
         $resolvedHost = ($dns | Where-Object { $_.Type -eq 'A' } | Select-Object -First 1).IPAddress
-    } else {
+    }
+
+    # 2) ping (winsock/getaddrinfo - PuTTY ile ayni yol, mDNS destekler)
+    if ($resolvedHost -eq $HostName) {
+        $pingOut = & ping -n 1 -w 1000 $HostName 2>&1 | Out-String
+        if ($pingOut -match '\[(\d+\.\d+\.\d+\.\d+)\]') {
+            $resolvedHost = $Matches[1]
+        }
+    }
+
+    # 3) Port 8266 uzerinden subnet taramasi
+    if ($resolvedHost -eq $HostName) {
         $found = Find-PiColorIP
         if ($found) {
             $resolvedHost = $found
