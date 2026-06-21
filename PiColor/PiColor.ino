@@ -2222,41 +2222,38 @@ static void sanitizeHostname(const char *src, char *dst, size_t dstMax) {
 }
 
 /*
+ * applyHostnameBeforeBegin
+ * ------------------------
+ * WiFi.setHostname() wrapperi dual AP+STA modda yanlış netif'e yazıyor.
+ * WiFi.begin() öncesinde tüm netif'lere doğrudan lwIP ile hostname yaz;
+ * DHCP ilk DISCOVER paketinden itibaren option 12 içerir, ikinci DHCP turu gerekmez.
+ */
+static void applyHostnameBeforeBegin() {
+    char hn[64];
+    sanitizeHostname(DEFAULT_DEVICE_NAME, hn, sizeof(hn));
+    WiFi.setHostname(hn);               // wrapper da çağıralım (zarar vermez)
+    cyw43_arch_lwip_begin();
+    struct netif *n;
+    NETIF_FOREACH(n) { netif_set_hostname(n, hn); }
+    cyw43_arch_lwip_end();
+}
+
+/*
  * applyDhcpHostname
  * -----------------
- * WiFi.setHostname() and netif_default are unreliable in dual AP+STA mode.
- * Strategy: after STA has an IP, find its netif by matching WiFi.localIP(),
- * set hostname directly, then force a fresh DHCP negotiation (stop+start).
- * The new DISCOVER/REQUEST packets will carry option 12 with the hostname.
- * g_hostnameApplied prevents re-running until the next reconnect.
+ * Bağlantı kurulduktan sonra hafif sigorta: STA netif'ini IP ile bulup
+ * dhcp_renew() ile bir REQUEST daha gönderiyor. IP kesintisi yok.
+ * Hostname zaten ilk DISCOVER'da yer aldığından bu adım genellikle gereksiz.
  */
 static void applyDhcpHostname() {
     if (g_hostnameApplied) return;
     if (WiFi.status() != WL_CONNECTED) return;
-
     u32_t staIPu32 = (u32_t)(uint32_t)WiFi.localIP();
     if (staIPu32 == 0) return;
-
-    char hn[64];
-    sanitizeHostname(DEFAULT_DEVICE_NAME, hn, sizeof(hn));
-
     cyw43_arch_lwip_begin();
     struct netif *sta = NULL;
-    {
-        struct netif *n;
-        NETIF_FOREACH(n) {
-            if (ip4_addr_get_u32(netif_ip4_addr(n)) == staIPu32) {
-                sta = n;
-                break;
-            }
-        }
-    }
-    if (sta) {
-        netif_set_hostname(sta, hn);
-        dhcp_stop(sta);   // mevcut kirayı bırak (RELEASE göndermez)
-        dhcp_start(sta);  // yeni DISCOVER + REQUEST — option 12 hostname içerir
-        g_hostnameApplied = true;
-    }
+    { struct netif *n; NETIF_FOREACH(n) { if (ip4_addr_get_u32(netif_ip4_addr(n)) == staIPu32) { sta = n; break; } } }
+    if (sta) { dhcp_renew(sta); g_hostnameApplied = true; }
     cyw43_arch_lwip_end();
 }
 
@@ -2269,7 +2266,7 @@ static void applyDhcpHostname() {
 void reconnectWiFiSTA() {
     if (strlen(wifiStaSSID) > 0) {
         g_hostnameApplied = false;
-        { char _hn[64]; sanitizeHostname(DEFAULT_DEVICE_NAME, _hn, sizeof(_hn)); WiFi.setHostname(_hn); }
+        applyHostnameBeforeBegin();
         WiFi.begin(wifiStaSSID, wifiStaPass);
         printStatusMessage(calibMode, "WIFI_STA_RECONNECTING");
     } else {
@@ -2336,7 +2333,7 @@ void setupWiFi() {
     // STA: AP tamamen hazır olduktan sonra başlat — WiFi.begin() AP'yi bozabilir
     // (arduino-pico 5.6.0'da softAP + WiFi.begin() çakışma sorunu)
     if (cfgWifiStaAuto && strlen(wifiStaSSID) > 0 && WiFi.softAPIP() != IPAddress(0, 0, 0, 0)) {
-        { char _hn[64]; sanitizeHostname(DEFAULT_DEVICE_NAME, _hn, sizeof(_hn)); WiFi.setHostname(_hn); }
+        applyHostnameBeforeBegin();
         WiFi.begin(wifiStaSSID, wifiStaPass);
         printStatusMessage(calibMode, "WIFI_STA_CONNECTING");
         // STA bağlantısı başladı — kırmızı LED hemen yak (RGB blink'lerden önce görünsün)
@@ -2543,8 +2540,8 @@ void handleWiFiReconnect(unsigned long currentMillis) {
         applyDhcpHostname(); // bağlıysa hostname uygulandı mı kontrol et
     } else {
         if (cfgPilModu && staReconnectAttempts >= 3) return; // pil modu: deneme limitine ulaşıldı
-        g_hostnameApplied = false; // yeniden bağlantıda hostname tekrar uygulanacak
-        { char _hn[64]; sanitizeHostname(DEFAULT_DEVICE_NAME, _hn, sizeof(_hn)); WiFi.setHostname(_hn); }
+        g_hostnameApplied = false;
+        applyHostnameBeforeBegin();
         WiFi.begin(wifiStaSSID, wifiStaPass);
         staReconnectAttempts++;
         printStatusMessage(calibMode, "WIFI_STA_RECONNECTING");
