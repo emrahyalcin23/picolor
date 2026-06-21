@@ -2300,6 +2300,7 @@ static void applyDhcpHostname() {
 void reconnectWiFiSTA() {
     if (strlen(wifiStaSSID) > 0) {
         g_hostnameApplied = false;
+        staReconnectAttempts = 0;  // manuel bağlantıda sayacı sıfırla
         applyHostnameBeforeBegin();
         WiFi.begin(wifiStaSSID, wifiStaPass);
         printStatusMessage(calibMode, "WIFI_STA_RECONNECTING");
@@ -2580,12 +2581,16 @@ void handleWiFiReconnect(unsigned long currentMillis) {
         staReconnectAttempts = 0;
         applyDhcpHostname(); // bağlıysa hostname uygulandı mı kontrol et
     } else {
-        if (cfgPilModu && staReconnectAttempts >= 3) return; // pil modu: deneme limitine ulaşıldı
+        int maxAttempts = cfgPilModu ? 3 : 10;
+        if (staReconnectAttempts >= maxAttempts) return;
         g_hostnameApplied = false;
         applyHostnameBeforeBegin();
         WiFi.begin(wifiStaSSID, wifiStaPass);
         staReconnectAttempts++;
-        printStatusMessage(calibMode, "WIFI_STA_RECONNECTING");
+        char msg[48];
+        snprintf(msg, sizeof(msg), "WIFI_STA_RECONNECTING,ATTEMPT=%d/%d",
+                 staReconnectAttempts, maxAttempts);
+        printStatusMessage(calibMode, msg);
     }
 }
 
