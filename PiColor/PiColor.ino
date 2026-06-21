@@ -2224,20 +2224,37 @@ static void sanitizeHostname(const char *src, char *dst, size_t dstMax) {
 /*
  * applyDhcpHostname
  * -----------------
- * WiFi.setHostname() in dual AP+STA mode sets the hostname on the wrong netif.
- * After STA gets an IP, we set hostname directly on the lwIP netif and call
- * dhcp_renew() so the router receives a DHCPREQUEST with option 12 (hostname).
- * The g_hostnameApplied flag ensures this runs only once per connection.
+ * WiFi.setHostname() and netif_default are unreliable in dual AP+STA mode.
+ * Strategy: after STA has an IP, find its netif by matching WiFi.localIP(),
+ * set hostname directly, then force a fresh DHCP negotiation (stop+start).
+ * The new DISCOVER/REQUEST packets will carry option 12 with the hostname.
+ * g_hostnameApplied prevents re-running until the next reconnect.
  */
 static void applyDhcpHostname() {
     if (g_hostnameApplied) return;
+    if (WiFi.status() != WL_CONNECTED) return;
+
+    u32_t staIPu32 = (u32_t)(uint32_t)WiFi.localIP();
+    if (staIPu32 == 0) return;
+
     char hn[64];
     sanitizeHostname(DEFAULT_DEVICE_NAME, hn, sizeof(hn));
+
     cyw43_arch_lwip_begin();
-    struct netif *n = netif_default;
-    if (n && !ip4_addr_isany(netif_ip4_addr(n))) {
-        netif_set_hostname(n, hn);
-        dhcp_renew(n);
+    struct netif *sta = NULL;
+    {
+        struct netif *n;
+        NETIF_FOREACH(n) {
+            if (ip4_addr_get_u32(netif_ip4_addr(n)) == staIPu32) {
+                sta = n;
+                break;
+            }
+        }
+    }
+    if (sta) {
+        netif_set_hostname(sta, hn);
+        dhcp_stop(sta);   // mevcut kirayı bırak (RELEASE göndermez)
+        dhcp_start(sta);  // yeni DISCOVER + REQUEST — option 12 hostname içerir
         g_hostnameApplied = true;
     }
     cyw43_arch_lwip_end();
