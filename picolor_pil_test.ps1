@@ -97,27 +97,33 @@ function Find-PiColorIP {
 
     $candidates = [System.Collections.Generic.List[string]]::new()
 
-    # Sadece ozel ag araliklari: 10.x, 172.16-31.x, 192.168.x
-    $isPrivate = {
-        param($ip)
-        $ip -match '^10\.' -or
-        $ip -match '^192\.168\.' -or
-        ($ip -match '^172\.(\d+)\.' -and [int]$Matches[1] -ge 16 -and [int]$Matches[1] -le 31)
+    # Sadece RFC-1918 ozel ag araliklari: 10.x, 172.16-31.x, 192.168.x
+    function IsPrivateIP([string]$ip) {
+        if ($ip -match '^10\.') { return $true }
+        if ($ip -match '^192\.168\.') { return $true }
+        if ($ip -match '^172\.(\d+)\.' -and [int]$Matches[1] -ge 16 -and [int]$Matches[1] -le 31) { return $true }
+        return $false
     }
 
     try {
         Get-NetNeighbor -AddressFamily IPv4 -State Reachable,Stale,Delay,Probe -ErrorAction Stop |
-            Where-Object { & $isPrivate $_.IPAddress } |
+            Where-Object { IsPrivateIP $_.IPAddress } |
             ForEach-Object { $candidates.Add($_.IPAddress) }
     } catch {
         (& arp -a) | ForEach-Object {
-            if ($_ -match '(\d+\.\d+\.\d+\.\d+)\s+[\w-]+\s+(dynamic|Dinamik)') {
-                if (& $isPrivate $Matches[1]) { $candidates.Add($Matches[1]) }
+            if ($_ -match '(\d+\.\d+\.\d+\.\d+)') {
+                $ip = $Matches[1]
+                if ((IsPrivateIP $ip) -and $_ -match '(dynamic|Dinamik|statik|static)') {
+                    $candidates.Add($ip)
+                }
             }
         }
     }
 
-    foreach ($ip in ($candidates | Select-Object -Unique)) {
+    $unique = $candidates | Select-Object -Unique
+    Write-Host ("  [~] Taranacak {0} aday: {1}" -f @($unique).Count, ($unique -join ", ")) -ForegroundColor DarkGray
+
+    foreach ($ip in $unique) {
         try {
             $c  = New-Object Net.Sockets.TcpClient
             $ar = $c.BeginConnect($ip, $Port, $null, $null)
