@@ -159,7 +159,6 @@ extern "C" {
 // SD karta config.json koyarak herhangi birini override edebilirsiniz.
 // ============================================================
 #define DEFAULT_DEVICE_NAME     "PiColor_Modul_1" // Cihaz adı (BLE adı, çıktı wifi= alanı)
-#define DEFAULT_WIFI_HOSTNAME   "PiColor-Modul-1" // DHCP hostname (RFC 1123: yalnızca harf, rakam, tire)
 #define DEFAULT_WIFI_AP_SSID    "PiColor"        // AP ağ adı
 #define DEFAULT_WIFI_AP_PASS    "picolor123"      // AP şifresi (min 8 karakter)
 #define DEFAULT_WIFI_STA_SSID   ""               // ev modemi ağ adı (boş = bağlanma)
@@ -2152,6 +2151,74 @@ void changeTcpPort(uint16_t newPort) {
 }
 
 /*
+ * sanitizeHostname
+ * ----------------
+ * DHCP hostname must only contain letters, digits, and hyphens (RFC 1123).
+ * Converts UTF-8 extended/Turkish chars to ASCII base, replaces _ and space
+ * with -, and drops everything else. Falls back to "picolor" if result is empty.
+ */
+static void sanitizeHostname(const char *src, char *dst, size_t dstMax) {
+    size_t di = 0;
+    for (size_t si = 0; src[si] && di < dstMax - 1; ) {
+        uint8_t b = (uint8_t)src[si];
+        char out = 0;
+        if (b < 0x80) {
+            if ((b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9')) out = (char)b;
+            else if (b == '_' || b == ' ') out = '-';
+            else if (b == '-') out = '-';
+            si++;
+        } else if ((b & 0xE0) == 0xC0 && (uint8_t)src[si+1]) {
+            uint8_t b2 = (uint8_t)src[si+1];
+            if (b == 0xC3) {
+                // U+00C0-U+00FF: Latin-1 Supplement
+                switch (b2) {
+                    case 0x80: case 0x81: case 0x82: case 0x83: case 0x84: case 0x85: out='A'; break;
+                    case 0x87: out='C'; break;
+                    case 0x88: case 0x89: case 0x8A: case 0x8B: out='E'; break;
+                    case 0x8C: case 0x8D: case 0x8E: case 0x8F: out='I'; break;
+                    case 0x91: out='N'; break;
+                    case 0x92: case 0x93: case 0x94: case 0x95: case 0x96: out='O'; break;
+                    case 0x99: case 0x9A: case 0x9B: case 0x9C: out='U'; break;
+                    case 0x9D: out='Y'; break;
+                    case 0xA0: case 0xA1: case 0xA2: case 0xA3: case 0xA4: case 0xA5: out='a'; break;
+                    case 0xA7: out='c'; break;
+                    case 0xA8: case 0xA9: case 0xAA: case 0xAB: out='e'; break;
+                    case 0xAC: case 0xAD: case 0xAE: case 0xAF: out='i'; break;
+                    case 0xB1: out='n'; break;
+                    case 0xB2: case 0xB3: case 0xB4: case 0xB5: case 0xB6: out='o'; break;
+                    case 0xB9: case 0xBA: case 0xBB: case 0xBC: out='u'; break;
+                    case 0xBD: out='y'; break;
+                    default: break;
+                }
+            } else if (b == 0xC4) {
+                // U+0100-U+017F: Latin Extended-A (Turkish: Ğ=9E ğ=9F İ=B0 ı=B1)
+                switch (b2) {
+                    case 0x9E: out='G'; break; // Ğ
+                    case 0x9F: out='g'; break; // ğ
+                    case 0xB0: out='I'; break; // İ
+                    case 0xB1: out='i'; break; // ı
+                    default:   out = (b2 & 1) ? (char)((b2 - 0x80) / 2 + 'a') : 0; break;
+                }
+            } else if (b == 0xC5) {
+                // U+0140-U+017F cont. (Turkish: Ş=9E ş=9F)
+                switch (b2) {
+                    case 0x9E: out='S'; break; // Ş
+                    case 0x9F: out='s'; break; // ş
+                    default:   break;
+                }
+            }
+            si += 2;
+        } else if ((b & 0xF0) == 0xE0) { si += 3; }  // 3-byte — skip
+        else if ((b & 0xF8) == 0xF0)   { si += 4; }  // 4-byte — skip
+        else                            { si++;      }
+        if (out && di < dstMax - 1) dst[di++] = out;
+    }
+    while (di > 0 && dst[di-1] == '-') di--;  // trim trailing hyphens
+    dst[di] = '\0';
+    if (di == 0) { strncpy(dst, "picolor", dstMax - 1); dst[dstMax-1] = '\0'; }
+}
+
+/*
  * reconnectWiFiSTA
  * ----------------
  * WIFI_STA_BAGLAN komutunu işler: kimlik bilgisi varsa WiFi.begin() çağrılır.
@@ -2159,7 +2226,7 @@ void changeTcpPort(uint16_t newPort) {
  */
 void reconnectWiFiSTA() {
     if (strlen(wifiStaSSID) > 0) {
-        WiFi.setHostname(DEFAULT_WIFI_HOSTNAME);
+        { char _hn[64]; sanitizeHostname(DEFAULT_DEVICE_NAME, _hn, sizeof(_hn)); WiFi.setHostname(_hn); }
         WiFi.begin(wifiStaSSID, wifiStaPass);
         printStatusMessage(calibMode, "WIFI_STA_RECONNECTING");
     } else {
@@ -2226,7 +2293,7 @@ void setupWiFi() {
     // STA: AP tamamen hazır olduktan sonra başlat — WiFi.begin() AP'yi bozabilir
     // (arduino-pico 5.6.0'da softAP + WiFi.begin() çakışma sorunu)
     if (cfgWifiStaAuto && strlen(wifiStaSSID) > 0 && WiFi.softAPIP() != IPAddress(0, 0, 0, 0)) {
-        WiFi.setHostname(DEFAULT_WIFI_HOSTNAME); // router'ın bağlı cihazlar listesinde görünecek ad
+        { char _hn[64]; sanitizeHostname(DEFAULT_DEVICE_NAME, _hn, sizeof(_hn)); WiFi.setHostname(_hn); }
         WiFi.begin(wifiStaSSID, wifiStaPass);
         printStatusMessage(calibMode, "WIFI_STA_CONNECTING");
         // STA bağlantısı başladı — kırmızı LED hemen yak (RGB blink'lerden önce görünsün)
@@ -2431,7 +2498,7 @@ void handleWiFiReconnect(unsigned long currentMillis) {
         staReconnectAttempts = 0;
     } else {
         if (cfgPilModu && staReconnectAttempts >= 3) return; // pil modu: deneme limitine ulaşıldı
-        WiFi.setHostname(DEFAULT_WIFI_HOSTNAME);
+        { char _hn[64]; sanitizeHostname(DEFAULT_DEVICE_NAME, _hn, sizeof(_hn)); WiFi.setHostname(_hn); }
         WiFi.begin(wifiStaSSID, wifiStaPass);
         staReconnectAttempts++;
         printStatusMessage(calibMode, "WIFI_STA_RECONNECTING");
