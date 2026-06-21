@@ -92,58 +92,68 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
 #  YARDIMCI: ARP tablosunu tarayarak PiColor cihazini bul
 #  Port 8266'ya baglanip selamlamada "TCP_CONNECTED=PICOLOR" araniyor.
 # -----------------------------------------------------------------------------
+function IsPrivateIP([string]$ip) {
+    if ($ip -match '^10\.') { return $true }
+    if ($ip -match '^192\.168\.') { return $true }
+    if ($ip -match '^172\.(\d+)\.' -and [int]$Matches[1] -ge 16 -and [int]$Matches[1] -le 31) { return $true }
+    return $false
+}
+
 function Find-PiColorIP {
-    Write-Host "  [~] PiColor agda araniyor (ARP taramasi)..." -ForegroundColor DarkYellow
+    # Yerel ozel ag arayuzlerini bul
+    $localIPs = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                  Where-Object { IsPrivateIP $_.IPAddress } |
+                  Select-Object -ExpandProperty IPAddress)
 
-    $candidates = [System.Collections.Generic.List[string]]::new()
-
-    # Sadece RFC-1918 ozel ag araliklari: 10.x, 172.16-31.x, 192.168.x
-    function IsPrivateIP([string]$ip) {
-        if ($ip -match '^10\.') { return $true }
-        if ($ip -match '^192\.168\.') { return $true }
-        if ($ip -match '^172\.(\d+)\.' -and [int]$Matches[1] -ge 16 -and [int]$Matches[1] -le 31) { return $true }
-        return $false
+    if ($localIPs.Count -eq 0) {
+        Write-Host "  [!] Ozel ag arayuzu bulunamadi." -ForegroundColor Red
+        return $null
     }
 
-    try {
-        Get-NetNeighbor -AddressFamily IPv4 -State Reachable,Stale,Delay,Probe -ErrorAction Stop |
-            Where-Object { IsPrivateIP $_.IPAddress } |
-            ForEach-Object { $candidates.Add($_.IPAddress) }
-    } catch {
-        (& arp -a) | ForEach-Object {
-            if ($_ -match '(\d+\.\d+\.\d+\.\d+)') {
-                $ip = $Matches[1]
-                if ((IsPrivateIP $ip) -and $_ -match '(dynamic|Dinamik|statik|static)') {
-                    $candidates.Add($ip)
-                }
-            }
-        }
-    }
+    $subnets = $localIPs | ForEach-Object { $_ -replace '\.\d+$', '' } | Select-Object -Unique
 
-    $unique = $candidates | Select-Object -Unique
-    Write-Host ("  [~] Taranacak {0} aday: {1}" -f @($unique).Count, ($unique -join ", ")) -ForegroundColor DarkGray
+    foreach ($subnet in $subnets) {
+        Write-Host ("  [~] {0}.1-254 taraniyor (port {1})..." -f $subnet, $Port) -ForegroundColor DarkYellow
 
-    foreach ($ip in $unique) {
-        try {
-            $c  = New-Object Net.Sockets.TcpClient
-            $ar = $c.BeginConnect($ip, $Port, $null, $null)
-            if (-not $ar.AsyncWaitHandle.WaitOne(500, $false)) {
-                try { $c.Close() } catch {}; continue
-            }
-            try { $c.EndConnect($ar) } catch { try { $c.Close() } catch {}; continue }
-            if (-not $c.Connected) { try { $c.Close() } catch {}; continue }
-
-            $ns = $c.GetStream(); $ns.ReadTimeout = 700
-            $buf = New-Object byte[] 512
+        # 254 IP'ye paralel async TCP baglanti baslat
+        $tasks = @{}
+        for ($i = 1; $i -le 254; $i++) {
+            $ip = "$subnet.$i"
             try {
-                $n = $ns.Read($buf, 0, $buf.Length)
-                if ($n -gt 0 -and [Text.Encoding]::UTF8.GetString($buf, 0, $n) -like "*TCP_CONNECTED=PICOLOR*") {
-                    try { $c.Close() } catch {}
-                    return $ip
+                $c  = New-Object Net.Sockets.TcpClient
+                $ar = $c.BeginConnect($ip, $Port, $null, $null)
+                $tasks[$ip] = @{ C = $c; AR = $ar }
+            } catch {}
+        }
+
+        # Baglanti sonuclari icin bekle
+        Start-Sleep -Milliseconds 800
+
+        foreach ($ip in $tasks.Keys) {
+            $t = $tasks[$ip]
+            $found = $false
+            try {
+                if ($t.AR.IsCompleted) {
+                    try { $t.C.EndConnect($t.AR) } catch { continue }
+                    if ($t.C.Connected) {
+                        $ns = $t.C.GetStream(); $ns.ReadTimeout = 500
+                        $buf = New-Object byte[] 512
+                        try {
+                            $n = $ns.Read($buf, 0, $buf.Length)
+                            if ($n -gt 0 -and [Text.Encoding]::UTF8.GetString($buf, 0, $n) -like "*TCP_CONNECTED=PICOLOR*") {
+                                $found = $true
+                            }
+                        } catch {}
+                    }
                 }
             } catch {}
-            try { $c.Close() } catch {}
-        } catch {}
+            try { $t.C.Close() } catch {}
+            if ($found) {
+                foreach ($x in $tasks.Values) { try { $x.C.Close() } catch {} }
+                Write-Host "  [+] Bulundu: $ip" -ForegroundColor Green
+                return $ip
+            }
+        }
     }
     return $null
 }
