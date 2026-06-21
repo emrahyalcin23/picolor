@@ -2265,17 +2265,30 @@ static void applyDhcpHostname() {
     if (g_hostnameApplied) return;
     if (WiFi.status() != WL_CONNECTED) return;
     u32_t staIPu32 = (u32_t)(uint32_t)WiFi.localIP();
-    if (staIPu32 == 0) return;
+    if (staIPu32 == 0) {
+        printStatusMessage(calibMode, "DHCP_HN:LOCAL_IP_ZERO");
+        return;
+    }
+    char dbg[96];
+    snprintf(dbg, sizeof(dbg), "DHCP_HN:SEARCH,IP=%s,HN=%s",
+             WiFi.localIP().toString().c_str(), g_wifiHostname);
+    printStatusMessage(calibMode, dbg);
     cyw43_arch_lwip_begin();
     struct netif *sta = NULL;
     { struct netif *n; NETIF_FOREACH(n) { if (ip4_addr_get_u32(netif_ip4_addr(n)) == staIPu32) { sta = n; break; } } }
     if (sta) {
-        netif_set_hostname(sta, g_wifiHostname);  // STA netif hostname'ini ayarla
-        dhcp_stop(sta);                            // DHCP istemcisini durdur
-        dhcp_start(sta);                           // Yeni DISCOVER gönder — option 12 dahil
+        netif_set_hostname(sta, g_wifiHostname);
+        dhcp_stop(sta);
+        dhcp_start(sta);
         g_hostnameApplied = true;
+        snprintf(dbg, sizeof(dbg), "DHCP_HN:APPLIED,HN=%s",
+                 sta->hostname ? sta->hostname : "(null)");
+        cyw43_arch_lwip_end();
+        printStatusMessage(calibMode, dbg);
+    } else {
+        cyw43_arch_lwip_end();
+        printStatusMessage(calibMode, "DHCP_HN:STA_NETIF_NOT_FOUND");
     }
-    cyw43_arch_lwip_end();
 }
 
 /*
