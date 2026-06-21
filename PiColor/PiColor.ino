@@ -2235,7 +2235,7 @@ static void applyDhcpHostname() {
     sanitizeHostname(DEFAULT_DEVICE_NAME, hn, sizeof(hn));
     cyw43_arch_lwip_begin();
     struct netif *n = netif_default;
-    if (n && n->ip_addr.addr != 0) {
+    if (n && !ip4_addr_isany(netif_ip4_addr(n))) {
         netif_set_hostname(n, hn);
         dhcp_renew(n);
         g_hostnameApplied = true;
