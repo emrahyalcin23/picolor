@@ -158,7 +158,8 @@ extern "C" {
 // VARSAYILAN AYARLAR — config.json yoksa bu değerler kullanılır
 // SD karta config.json koyarak herhangi birini override edebilirsiniz.
 // ============================================================
-#define DEFAULT_DEVICE_NAME     "PiColor_Modul_1" // Cihaz adı (BLE, WiFi hostname, çıktı)
+#define DEFAULT_DEVICE_NAME     "PiColor_Modul_1" // Cihaz adı (BLE adı, çıktı wifi= alanı)
+#define DEFAULT_WIFI_HOSTNAME   "PiColor-Modul-1" // DHCP hostname (RFC 1123: yalnızca harf, rakam, tire)
 #define DEFAULT_WIFI_AP_SSID    "PiColor"        // AP ağ adı
 #define DEFAULT_WIFI_AP_PASS    "picolor123"      // AP şifresi (min 8 karakter)
 #define DEFAULT_WIFI_STA_SSID   ""               // ev modemi ağ adı (boş = bağlanma)
@@ -2158,7 +2159,7 @@ void changeTcpPort(uint16_t newPort) {
  */
 void reconnectWiFiSTA() {
     if (strlen(wifiStaSSID) > 0) {
-        WiFi.setHostname(DEFAULT_DEVICE_NAME);
+        WiFi.setHostname(DEFAULT_WIFI_HOSTNAME);
         WiFi.begin(wifiStaSSID, wifiStaPass);
         printStatusMessage(calibMode, "WIFI_STA_RECONNECTING");
     } else {
@@ -2225,7 +2226,7 @@ void setupWiFi() {
     // STA: AP tamamen hazır olduktan sonra başlat — WiFi.begin() AP'yi bozabilir
     // (arduino-pico 5.6.0'da softAP + WiFi.begin() çakışma sorunu)
     if (cfgWifiStaAuto && strlen(wifiStaSSID) > 0 && WiFi.softAPIP() != IPAddress(0, 0, 0, 0)) {
-        WiFi.setHostname(DEFAULT_DEVICE_NAME); // router'ın bağlı cihazlar listesinde görünecek ad
+        WiFi.setHostname(DEFAULT_WIFI_HOSTNAME); // router'ın bağlı cihazlar listesinde görünecek ad
         WiFi.begin(wifiStaSSID, wifiStaPass);
         printStatusMessage(calibMode, "WIFI_STA_CONNECTING");
         // STA bağlantısı başladı — kırmızı LED hemen yak (RGB blink'lerden önce görünsün)
@@ -2430,7 +2431,7 @@ void handleWiFiReconnect(unsigned long currentMillis) {
         staReconnectAttempts = 0;
     } else {
         if (cfgPilModu && staReconnectAttempts >= 3) return; // pil modu: deneme limitine ulaşıldı
-        WiFi.setHostname(DEFAULT_DEVICE_NAME);
+        WiFi.setHostname(DEFAULT_WIFI_HOSTNAME);
         WiFi.begin(wifiStaSSID, wifiStaPass);
         staReconnectAttempts++;
         printStatusMessage(calibMode, "WIFI_STA_RECONNECTING");
