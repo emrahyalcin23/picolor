@@ -148,6 +148,8 @@
 #include <WiFi.h>
 #include <WiFiServer.h>
 #include <LEAmDNS.h>
+#include <lwip/netif.h>
+#include <lwip/dhcp.h>
 #include <BTstackLib.h>
 extern "C" {
 #include "ble/att_server.h"
@@ -330,6 +332,7 @@ static bool     loggingEnabled    = DEFAULT_LOGGING;
 static char     cfgLogFile[64]    = DEFAULT_LOG_FILE;
 static uint16_t cfgTcpPort        = DEFAULT_TCP_PORT;
 static bool     wifiEnabled       = true;   // WIRELESS_ENABLED=0/1 komutuyla oturum bazlı değişir
+static bool     g_hostnameApplied = false;  // DHCP hostname STA bağlantısı sonrası bir kez uygulanır
 
 #define MAX_TCP_CLIENTS 4
 // Global nesne: arduino-pico'da WiFiServer::begin() güvenilir çalışması için global olmalı
@@ -2219,6 +2222,28 @@ static void sanitizeHostname(const char *src, char *dst, size_t dstMax) {
 }
 
 /*
+ * applyDhcpHostname
+ * -----------------
+ * WiFi.setHostname() in dual AP+STA mode sets the hostname on the wrong netif.
+ * After STA gets an IP, we set hostname directly on the lwIP netif and call
+ * dhcp_renew() so the router receives a DHCPREQUEST with option 12 (hostname).
+ * The g_hostnameApplied flag ensures this runs only once per connection.
+ */
+static void applyDhcpHostname() {
+    if (g_hostnameApplied) return;
+    char hn[64];
+    sanitizeHostname(DEFAULT_DEVICE_NAME, hn, sizeof(hn));
+    cyw43_arch_lwip_begin();
+    struct netif *n = netif_default;
+    if (n && n->ip_addr.addr != 0) {
+        netif_set_hostname(n, hn);
+        dhcp_renew(n);
+        g_hostnameApplied = true;
+    }
+    cyw43_arch_lwip_end();
+}
+
+/*
  * reconnectWiFiSTA
  * ----------------
  * WIFI_STA_BAGLAN komutunu işler: kimlik bilgisi varsa WiFi.begin() çağrılır.
@@ -2226,6 +2251,7 @@ static void sanitizeHostname(const char *src, char *dst, size_t dstMax) {
  */
 void reconnectWiFiSTA() {
     if (strlen(wifiStaSSID) > 0) {
+        g_hostnameApplied = false;
         { char _hn[64]; sanitizeHostname(DEFAULT_DEVICE_NAME, _hn, sizeof(_hn)); WiFi.setHostname(_hn); }
         WiFi.begin(wifiStaSSID, wifiStaPass);
         printStatusMessage(calibMode, "WIFI_STA_RECONNECTING");
@@ -2471,6 +2497,7 @@ void handleWiFiReconnect(unsigned long currentMillis) {
         for (int i = 0; i < NEO_COUNT; i++) strip.setPixelColor(i, strip.Color(0, 40, 0));
         strip.show();
         staLedGreenUntil = currentMillis + 1000;
+        applyDhcpHostname(); // STA bağlantısı kuruldu — DHCP hostname uygula
     }
     // Bağlantı 30 sn içinde kurulamazsa: 3x kırmızı blink, söndür
     if (staLedConnecting && staLedConnectingStart > 0 &&
@@ -2496,8 +2523,10 @@ void handleWiFiReconnect(unsigned long currentMillis) {
     lastSTACheck = currentMillis;
     if (WiFi.status() == WL_CONNECTED) {
         staReconnectAttempts = 0;
+        applyDhcpHostname(); // bağlıysa hostname uygulandı mı kontrol et
     } else {
         if (cfgPilModu && staReconnectAttempts >= 3) return; // pil modu: deneme limitine ulaşıldı
+        g_hostnameApplied = false; // yeniden bağlantıda hostname tekrar uygulanacak
         { char _hn[64]; sanitizeHostname(DEFAULT_DEVICE_NAME, _hn, sizeof(_hn)); WiFi.setHostname(_hn); }
         WiFi.begin(wifiStaSSID, wifiStaPass);
         staReconnectAttempts++;
