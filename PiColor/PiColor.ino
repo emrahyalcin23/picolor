@@ -129,7 +129,7 @@
  * ============================================================
  */
 
-#define FIRMWARE_VERSION  "v0.09.08"   // Firmware sürümü
+#define FIRMWARE_VERSION  "v0.09.09"   // Firmware sürümü
 
 #include <ArduinoJson.h>
 
@@ -2275,12 +2275,20 @@ static void sanitizeHostname(const char *src, char *dst, size_t dstMax) {
  * Yerel char dizisi kullanmak dangling pointer yaratır: WiFi.begin() sonrası
  * DHCP asenkron çalıştığında dizi çoktan yok olmuş olur ve lwIP çöp okur.
  * g_wifiHostname global olduğundan ömrü programla birlikte devam eder.
+ *
+ * WiFi.mode(WIFI_AP_STA): softAP() çağrısı _mode=WIFI_AP yapar. Bu durumda
+ * WiFi.begin() içindeki _beginInternal(), ESP8266 uyumluluk hack'i olan
+ * beginAP() yoluna girer ve _wifi.begin() (LwipIntfDev::begin()) hiç çağrılmaz.
+ * LwipIntfDev::begin() ise dhcp_start() öncesi _netif.hostname'i set eden
+ * tek yerdir. Çağrılmazsa hostname=NULL → DHCPDISCOVER option 12 içermez →
+ * router "Bilinmeyen" gösterir. WIFI_AP_STA modu, doğru else dalını zorlar.
  */
 static void applyHostnameBeforeBegin() {
     if (g_wifiHostname[0] == '\0') {
         sanitizeHostname(DEFAULT_DEVICE_NAME, g_wifiHostname, sizeof(g_wifiHostname));
     }
     WiFi.setHostname(g_wifiHostname);
+    WiFi.mode(WIFI_AP_STA);
     cyw43_arch_lwip_begin();
     struct netif *n;
     NETIF_FOREACH(n) { netif_set_hostname(n, g_wifiHostname); }
