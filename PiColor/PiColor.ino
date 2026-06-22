@@ -2360,25 +2360,19 @@ void clearWiFiCredentials() {
  * STA bağlantısı başlarsa NeoPixel kırmızı yanarak handleWiFiReconnect()'i bekler.
  */
 void setupWiFi() {
-    // Hostname'i CYW43 başlamadan önce arduino-pico WiFi sınıfına kaydet.
-    // arduino-pico bu değeri saklar; STA netifi DHCP başlatmadan önce uygular.
-    if (g_wifiHostname[0] == '\0') {
-        sanitizeHostname(DEFAULT_DEVICE_NAME, g_wifiHostname, sizeof(g_wifiHostname));
-    }
-    WiFi.setHostname(g_wifiHostname);
-
     // AP başlat — CYW43 default IP 192.168.4.1 kullanır (softAPConfig arduino-pico 5.6.0'da çalışmıyor)
     WiFi.softAP(cfgWifiApSSID, cfgWifiApPass);
 
     { uint32_t _t = millis(); while (WiFi.softAPIP() == IPAddress(0, 0, 0, 0) && millis() - _t < 15000) delay(10); }
 
-    // STA: AP tamamen hazır olduktan sonra başlat — WiFi.begin() AP'yi bozabilir
-    // (arduino-pico 5.6.0'da softAP + WiFi.begin() çakışma sorunu)
-    if (cfgWifiStaAuto && strlen(wifiStaSSID) > 0 && WiFi.softAPIP() != IPAddress(0, 0, 0, 0)) {
+    // STA: AP hazır olsun ya da olmasın başlat (AP IP gelmezse sadece log at)
+    if (cfgWifiStaAuto && strlen(wifiStaSSID) > 0) {
+        if (WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) {
+            printStatusMessage(calibMode, "WIFI_AP_IP_TIMEOUT");
+        }
         applyHostnameBeforeBegin();
         WiFi.begin(wifiStaSSID, wifiStaPass);
         printStatusMessage(calibMode, "WIFI_STA_CONNECTING");
-        // STA bağlantısı başladı — kırmızı LED hemen yak (RGB blink'lerden önce görünsün)
         staLedConnecting      = true;
         staLedConnectingStart = millis();
         for (int i = 0; i < NEO_COUNT; i++) strip.setPixelColor(i, strip.Color(40, 0, 0));
