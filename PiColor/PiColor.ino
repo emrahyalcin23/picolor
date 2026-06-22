@@ -129,7 +129,7 @@
  * ============================================================
  */
 
-#define FIRMWARE_VERSION  "v0.09.09"   // Firmware sürümü
+#define FIRMWARE_VERSION  "v0.09.10"   // Firmware sürümü
 
 #include <ArduinoJson.h>
 
@@ -159,6 +159,15 @@
 #  endif
 #else
 #  pragma message("LWIP_NETIF_HOSTNAME tanimlanmamis — DHCP hostname KAPALI")
+#endif
+#ifdef LWIP_DHCP_DISCOVER_ADD_HOSTNAME
+#  if LWIP_DHCP_DISCOVER_ADD_HOSTNAME
+#    pragma message("LWIP_DHCP_DISCOVER_ADD_HOSTNAME = 1 — DISCOVER option 12 etkin")
+#  else
+#    pragma message("LWIP_DHCP_DISCOVER_ADD_HOSTNAME = 0 — DISCOVER option 12 KAPALI (router Bilinmeyen gosterir!)")
+#  endif
+#else
+#  pragma message("LWIP_DHCP_DISCOVER_ADD_HOSTNAME tanimlanmamis — 0 varsayilan (router Bilinmeyen gosterir!)")
 #endif
 #include <BTstackLib.h>
 extern "C" {
