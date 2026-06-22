@@ -2,7 +2,7 @@
 
 **PiColor** is a smart ambient light and color analyzer built on the Raspberry Pi Pico 2W (RP2350). It reads RGB and clear-channel data from a TCS34725 sensor, normalizes the results to a 0–100 scale, and streams them over USB Serial, WiFi TCP, and Bluetooth Low Energy simultaneously.
 
-Current firmware: **v0.09.04**
+Current firmware: **v0.09.12**
 
 ---
 
@@ -23,7 +23,7 @@ Sensor settings compiled in: gain **4×**, integration time **50 ms**.
 ## Connections
 
 ### USB Serial
-Connect via any serial terminal at **115200 baud**. The device identifies itself by returning `IDENTITY=PICOLOR_v0.09.04` to the `KIMSIN` command — use this for automatic port detection.
+Connect via any serial terminal at **115200 baud**. The device identifies itself by returning `IDENTITY=PICOLOR_v0.09.12` to the `KIMSIN` command — use this for automatic port detection.
 
 > **Note:** USB Serial (COM port) is **disabled** in the current build. The firmware uses **No USB** mode — the device never appears as a COM port. To re-enable: set **USB Stack → TinyUSB** in Arduino IDE settings and rebuild. The Apple 20W USB-C charger incompatibility is unrelated to USB stack choice and affects both modes equally (see `SINIRLILIKLAR.md`).
 
@@ -36,7 +36,7 @@ The device simultaneously runs its own access point **and** can connect to a hom
 | AP Password | `picolor123` | WPA2 |
 | AP IP | `192.168.4.1` | Fixed (default) |
 | TCP port | `8266` | Configurable at runtime |
-| mDNS | `picolor.local` | On connected network |
+| mDNS | `picolor-modul-1.local` | On connected network |
 | Max TCP clients | 4 | Simultaneous |
 
 STA credentials are read from `config.json` (SD card), then EEPROM, then compile-time defaults. Use `WIFI_STA_KAYDET` to persist credentials to EEPROM without SD.
@@ -58,7 +58,7 @@ Recommended order for first-time connection or troubleshooting:
 | Priority | Channel | Address | Condition |
 |---|---|---|---|
 | 1 | **WiFi AP** | `192.168.4.1:8266` | Always available — no configuration needed |
-| 2 | **WiFi STA** | `picolor.local:8266` | Home network credentials configured |
+| 2 | **WiFi STA** | `picolor-modul-1.local:8266` | Home network credentials configured |
 | 3 | **Bluetooth LE** | NUS profile | No WiFi required; BLE pairing needed |
 | 4 | **USB Serial** | COM port | Disabled in current build (No USB mode) |
 
@@ -177,7 +177,7 @@ Commands are case-insensitive. Multiple commands can be sent on one line, space 
 
 ### Device info
 ```
-KIMSIN                    → IDENTITY=PICOLOR_v0.09.04
+KIMSIN                    → IDENTITY=PICOLOR_v0.09.12
 VERSIYON / VERSION        → firmware version string
 DURUM / STATUS            → full system status (WiFi, BLE, settings)
 MOD                       → current calibration mode
@@ -307,7 +307,7 @@ User command history (optional): `/user_log.csv` — `timestamp, username, clien
 
 | Parameter | Default | Description |
 |---|---|---|
-| `HostName` | `picolor.local` | Device IP address or hostname |
+| `HostName` | `picolor-modul-1.local` | Device IP address or hostname |
 | `Interval` | `30` | Seconds between queries |
 | `Command` | `OKU_1` | PiColor command sent each cycle (1-minute average) |
 | `Port` | `8266` | TCP port |
@@ -320,8 +320,8 @@ User command history (optional): `/user_log.csv` — `timestamp, username, clien
 
 When `HostName` ends in `.local`, the script attempts resolution in this order:
 
-1. **mDNS** via `Resolve-DnsName picolor.local` — works when Bonjour is installed.
-2. **Ping** (`ping picolor.local`) — uses Windows name resolution (same path as PuTTY).
+1. **mDNS** via `Resolve-DnsName picolor-modul-1.local` — works when Bonjour is installed.
+2. **Ping** (`ping picolor-modul-1.local`) — uses Windows name resolution (same path as PuTTY).
 3. **Subnet TCP scan** — connects asynchronously to all 254 addresses on every local subnet and identifies PiColor by its TCP greeting (`TCP_CONNECTED=PICOLOR`).
 
 Direct IP addresses (e.g. `192.168.1.50`, `192.168.4.1`) bypass discovery entirely.
@@ -359,7 +359,7 @@ A file named `picolor_pil_YYYYMMDD_HHMMSS.csv` is created automatically in the s
 
 **PiColor**, Raspberry Pi Pico 2W (RP2350) üzerine kurulu akıllı bir ortam ışığı ve renk analizörüdür. TCS34725 sensöründen RGB ve clear-kanal verisi okur, sonuçları 0–100 skalasına normalize eder ve USB Serial, WiFi TCP ve Bluetooth Low Energy üzerinden eş zamanlı olarak yayınlar.
 
-Güncel firmware: **v0.09.04**
+Güncel firmware: **v0.09.12**
 
 ---
 
@@ -380,7 +380,7 @@ Derleme zamanı sensör ayarları: kazanım **4×**, entegrasyon süresi **50 ms
 ## Bağlantı Kanalları
 
 ### USB Serial
-115200 baud ile herhangi bir seri terminale bağlanın. `KIMSIN` komutuna `IDENTITY=PICOLOR_v0.09.04` yanıtı döner — otomatik port tanıma için kullanın.
+115200 baud ile herhangi bir seri terminale bağlanın. `KIMSIN` komutuna `IDENTITY=PICOLOR_v0.09.12` yanıtı döner — otomatik port tanıma için kullanın.
 
 > **Not:** USB Serial (COM portu) bu derlemede **devre dışıdır.** Firmware **No USB** modunu kullanıyor — cihaz hiçbir zaman COM portu olarak görünmez. Yeniden etkinleştirmek için: Arduino IDE'de **USB Stack → TinyUSB** seçin ve yeniden derleyin. Apple 20W USB-C şarj başlığı uyumsuzluğu, USB stack seçimiyle ilgisizdir; her iki modda da aynı şekilde görünür (bkz. `SINIRLILIKLAR.md`).
 
@@ -393,7 +393,7 @@ Cihaz kendi erişim noktasını açarken aynı anda ev/ofis ağına da bağlanab
 | AP Şifre | `picolor123` | WPA2 |
 | AP IP | `192.168.4.1` | Sabit (varsayılan) |
 | TCP port | `8266` | Çalışma zamanında değiştirilebilir |
-| mDNS | `picolor.local` | Bağlı ağda çalışır |
+| mDNS | `picolor-modul-1.local` | Bağlı ağda çalışır |
 | Maks TCP istemci | 4 | Eş zamanlı |
 
 STA kimlik bilgileri önce `config.json` (SD), sonra EEPROM, sonra derleme zamanı sabitlerinden okunur. SD kart yoksa `WIFI_STA_KAYDET` ile EEPROM'a kalıcı olarak kaydedilir.
@@ -415,7 +415,7 @@ BTstack tabanlı **Nordic UART Service (NUS)** uygular.
 | Öncelik | Kanal | Adres | Koşul |
 |---|---|---|---|
 | 1 | **WiFi AP** | `192.168.4.1:8266` | Her zaman aktif — yapılandırma gerekmez |
-| 2 | **WiFi STA** | `picolor.local:8266` | Ev ağı kimlik bilgileri yapılandırılmış olmalı |
+| 2 | **WiFi STA** | `picolor-modul-1.local:8266` | Ev ağı kimlik bilgileri yapılandırılmış olmalı |
 | 3 | **Bluetooth LE** | NUS profili | WiFi gerekmez; BLE eşleştirme şart |
 | 4 | **USB Serial** | COM portu | Bu derlemede devre dışı (No USB modu) |
 
@@ -534,7 +534,7 @@ Komutlar büyük/küçük harf duyarsızdır. Aynı satıra birden fazla komut y
 
 ### Cihaz bilgisi
 ```
-KIMSIN                    → IDENTITY=PICOLOR_v0.09.04
+KIMSIN                    → IDENTITY=PICOLOR_v0.09.12
 VERSIYON / VERSION        → firmware sürüm dizisi
 DURUM / STATUS            → tam sistem durumu (WiFi, BLE, ayarlar)
 MOD                       → mevcut kalibrasyon modu
@@ -664,7 +664,7 @@ CSV sütunları: `timestamp_ms, raw_r, raw_g, raw_b, raw_c, proc_r, proc_g, proc
 
 | Parametre | Varsayılan | Açıklama |
 |---|---|---|
-| `HostName` | `picolor.local` | Cihaz IP adresi veya sunucu adı |
+| `HostName` | `picolor-modul-1.local` | Cihaz IP adresi veya sunucu adı |
 | `Interval` | `30` | Sorgular arası bekleme süresi (saniye) |
 | `Command` | `OKU_1` | Her döngüde gönderilen PiColor komutu (1 dakika ortalaması) |
 | `Port` | `8266` | TCP port numarası |
@@ -677,8 +677,8 @@ CSV sütunları: `timestamp_ms, raw_r, raw_g, raw_b, raw_c, proc_r, proc_g, proc
 
 `HostName` `.local` ile bitiyorsa script şu sırayla çözümleme dener:
 
-1. **mDNS** — `Resolve-DnsName picolor.local` ile sorgu (Bonjour kuruluysa çalışır).
-2. **Ping** — `ping picolor.local` (Windows isim çözümleme, PuTTY ile aynı yol).
+1. **mDNS** — `Resolve-DnsName picolor-modul-1.local` ile sorgu (Bonjour kuruluysa çalışır).
+2. **Ping** — `ping picolor-modul-1.local` (Windows isim çözümleme, PuTTY ile aynı yol).
 3. **Subnet TCP tarama** — Yerel subnetin 254 adresine eş zamanlı olarak bağlantı dener; TCP karşılama mesajındaki `TCP_CONNECTED=PICOLOR` yazısıyla cihazı tanır.
 
 Doğrudan IP adresleri (`192.168.1.50`, `192.168.4.1` vb.) keşif aşamasını atlar.
