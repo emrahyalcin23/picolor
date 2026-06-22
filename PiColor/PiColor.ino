@@ -2277,8 +2277,8 @@ static void applyDhcpHostname() {
     struct netif *sta = NULL;
     { struct netif *n; NETIF_FOREACH(n) { if (ip4_addr_get_u32(netif_ip4_addr(n)) == staIPu32) { sta = n; break; } } }
     if (sta) {
-        netif_set_hostname(sta, g_wifiHostname);
-        dhcp_stop(sta);
+        dhcp_stop(sta);                          // callback resets hostname — intentional
+        netif_set_hostname(sta, g_wifiHostname); // set AFTER callback, BEFORE discover
         dhcp_start(sta);
         g_hostnameApplied = true;
         snprintf(dbg, sizeof(dbg), "DHCP_HN:APPLIED,HN=%s",
