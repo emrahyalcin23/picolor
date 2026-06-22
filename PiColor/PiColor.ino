@@ -347,6 +347,11 @@ static bool     g_hostnameApplied = false;  // DHCP hostname STA bağlantısı s
 // WiFi.begin() sonrası DHCP asenkron çalışır, yerel değişken o ana kadar yok olur
 static char     g_wifiHostname[64] = {0};
 
+#define STARTUP_LOG_SLOTS   20
+#define STARTUP_LOG_MSG_LEN 96
+static char    g_startupLog[STARTUP_LOG_SLOTS][STARTUP_LOG_MSG_LEN];
+static uint8_t g_startupLogCount = 0;
+
 #define MAX_TCP_CLIENTS 4
 // Global nesne: arduino-pico'da WiFiServer::begin() güvenilir çalışması için global olmalı
 static WiFiServer  g_tcpServer(DEFAULT_TCP_PORT);
@@ -506,6 +511,15 @@ void printStandardOutput(OutputType type, int mode,
  */
 void printStatusMessage(int mode, const char* message) {
     printStandardOutput(OUT_STATUS, mode, 0, 0, 0, message);
+}
+
+void logStartupMessage(int mode, const char* message) {
+    printStatusMessage(mode, message);
+    if (g_startupLogCount < STARTUP_LOG_SLOTS) {
+        strncpy(g_startupLog[g_startupLogCount], message, STARTUP_LOG_MSG_LEN - 1);
+        g_startupLog[g_startupLogCount][STARTUP_LOG_MSG_LEN - 1] = '\0';
+        g_startupLogCount++;
+    }
 }
 
 /*
@@ -1460,6 +1474,7 @@ void showHelp() {
     Serial.println("WIFI_STA_KAYDET          STA bilgilerini EEPROM'a kaydet (SD yok ise)");
     Serial.println("WIFI_STA_SIFIRLA         EEPROM'daki STA bilgilerini sil");
     Serial.println("WIFI_BILGI               AP ve STA durumunu goster");
+    Serial.println("BASLANGIC / STARTUP      baslangic mesajlarini tekrar goster");
     Serial.println("========================\n");
 #endif
 }
@@ -1509,6 +1524,22 @@ void showDurum() {
     // BLE
     snprintf(meta, sizeof(meta), "BLE=%s", bleConnected ? "CONNECTED" : "ADVERTISING");
     printStatusMessage(calibMode, meta);
+}
+
+/*
+ * showBaslangic
+ * -------------
+ * BASLANGIC / STARTUP komutunu işler: başlatma sırasında üretilen
+ * durum mesajlarını (logStartupMessage ile kaydedilmiş) tekrar gönderir.
+ */
+void showBaslangic() {
+    char meta[32];
+    snprintf(meta, sizeof(meta), "STARTUP_LOG_BEGIN=%d", g_startupLogCount);
+    printStatusMessage(calibMode, meta);
+    for (uint8_t i = 0; i < g_startupLogCount; i++) {
+        printStatusMessage(calibMode, g_startupLog[i]);
+    }
+    printStatusMessage(calibMode, "STARTUP_LOG_END");
 }
 
 // ============================================================
@@ -1856,6 +1887,9 @@ void processCommand(String cmd) {
     // ====================================================
     else if (cmd == "WIFI_BILGI") {
         showWiFiBilgi();
+    }
+    else if (cmd == "BASLANGIC" || cmd == "STARTUP") {
+        showBaslangic();
     }
 
     // ====================================================
@@ -2266,13 +2300,13 @@ static void applyDhcpHostname() {
     if (WiFi.status() != WL_CONNECTED) return;
     u32_t staIPu32 = (u32_t)(uint32_t)WiFi.localIP();
     if (staIPu32 == 0) {
-        printStatusMessage(calibMode, "DHCP_HN:LOCAL_IP_ZERO");
+        logStartupMessage(calibMode, "DHCP_HN:LOCAL_IP_ZERO");
         return;
     }
     char dbg[96];
     snprintf(dbg, sizeof(dbg), "DHCP_HN:SEARCH,IP=%s,HN=%s",
              WiFi.localIP().toString().c_str(), g_wifiHostname);
-    printStatusMessage(calibMode, dbg);
+    logStartupMessage(calibMode, dbg);
     cyw43_arch_lwip_begin();
     struct netif *sta = NULL;
     { struct netif *n; NETIF_FOREACH(n) { if (ip4_addr_get_u32(netif_ip4_addr(n)) == staIPu32) { sta = n; break; } } }
@@ -2284,10 +2318,10 @@ static void applyDhcpHostname() {
         snprintf(dbg, sizeof(dbg), "DHCP_HN:APPLIED,HN=%s",
                  sta->hostname ? sta->hostname : "(null)");
         cyw43_arch_lwip_end();
-        printStatusMessage(calibMode, dbg);
+        logStartupMessage(calibMode, dbg);
     } else {
         cyw43_arch_lwip_end();
-        printStatusMessage(calibMode, "DHCP_HN:STA_NETIF_NOT_FOUND");
+        logStartupMessage(calibMode, "DHCP_HN:STA_NETIF_NOT_FOUND");
     }
 }
 
@@ -2368,11 +2402,11 @@ void setupWiFi() {
     // STA: AP hazır olsun ya da olmasın başlat (AP IP gelmezse sadece log at)
     if (cfgWifiStaAuto && strlen(wifiStaSSID) > 0) {
         if (WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) {
-            printStatusMessage(calibMode, "WIFI_AP_IP_TIMEOUT");
+            logStartupMessage(calibMode, "WIFI_AP_IP_TIMEOUT");
         }
         applyHostnameBeforeBegin();
         WiFi.begin(wifiStaSSID, wifiStaPass);
-        printStatusMessage(calibMode, "WIFI_STA_CONNECTING");
+        logStartupMessage(calibMode, "WIFI_STA_CONNECTING");
         staLedConnecting      = true;
         staLedConnectingStart = millis();
         for (int i = 0; i < NEO_COUNT; i++) strip.setPixelColor(i, strip.Color(40, 0, 0));
@@ -2397,7 +2431,7 @@ void setupWiFi() {
     char apMeta[96];
     snprintf(apMeta, sizeof(apMeta), "WIFI_AP_STARTED,IP=%s,PORT=%d",
              WiFi.softAPIP().toString().c_str(), cfgTcpPort);
-    printStatusMessage(calibMode, apMeta);
+    logStartupMessage(calibMode, apMeta);
 }
 
 /*
@@ -2704,13 +2738,13 @@ void setup() {
     if (!tcs.begin()) {
         printErrorMessage(calibMode, "TCS_INIT_FAIL");
     } else {
-        printStatusMessage(calibMode, "TCS_OK");
+        logStartupMessage(calibMode, "TCS_OK");
     }
 
     // NeoPixel
     strip.begin();
     strip.show();
-    printStatusMessage(calibMode, "NEOPIXEL_OK");
+    logStartupMessage(calibMode, "NEOPIXEL_OK");
 
     // Encoder pinleri
     pinMode(ENC_CLK_PIN, INPUT_PULLUP);
@@ -2719,7 +2753,7 @@ void setup() {
 
     // CLK düşen kenarda kesme — bu satır kesinlikle kaldırılmamalı
     attachInterrupt(digitalPinToInterrupt(ENC_CLK_PIN), encoderISR, FALLING);
-    printStatusMessage(calibMode, "ENCODER_IRQ_OK");
+    logStartupMessage(calibMode, "ENCODER_IRQ_OK");
 
     // SD kart
     initSDCard();
@@ -2741,7 +2775,7 @@ void setup() {
     handleDataSampling(millis());
     updateLEDs();
 
-    printStatusMessage(calibMode, "SYSTEM_STARTED");
+    logStartupMessage(calibMode, "SYSTEM_STARTED");
 
     // Boot tamamlandı: R → G → B (100 ms arayla)
     for (int c = 0; c < 3; c++) {
