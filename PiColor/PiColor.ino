@@ -4,7 +4,7 @@
  * Copyright (c) 2026 Emrah YALÇIN
  * MIT License — https://opensource.org/licenses/MIT
  * ------------------------------------------------------------
- * VERSİYON : v0.09.08
+ * VERSİYON : v0.09.12
  * TANIM    : AP+STA çift mod WiFi — cihaz hem ev ağına (STA) bağlanır
  *            hem kendi AP ağını (192.168.4.1) açar. STA kimlik bilgileri
  *            EEPROM'da saklanır; TCP sunucusu her iki arabirimde (AP+STA)
@@ -129,7 +129,7 @@
  * ============================================================
  */
 
-#define FIRMWARE_VERSION  "v0.09.11"   // Firmware sürümü
+#define FIRMWARE_VERSION  "v0.09.12"   // Firmware sürümü
 
 #include <ArduinoJson.h>
 
