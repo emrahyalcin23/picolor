@@ -129,7 +129,7 @@
  * ============================================================
  */
 
-#define FIRMWARE_VERSION  "v0.09.10"   // Firmware sürümü
+#define FIRMWARE_VERSION  "v0.09.11"   // Firmware sürümü
 
 #include <ArduinoJson.h>
 
@@ -2342,6 +2342,11 @@ static void applyDhcpHostname() {
     snprintf(dbg, sizeof(dbg), "DHCP_HN:SEARCH,IP=%s,HN=%s",
              WiFi.localIP().toString().c_str(), g_wifiHostname);
     logStartupMessage(calibMode, dbg);
+#if defined(LWIP_DHCP_DISCOVER_ADD_HOSTNAME) && LWIP_DHCP_DISCOVER_ADD_HOSTNAME
+    logStartupMessage(calibMode, "DHCP_DISC_HN=1");
+#else
+    logStartupMessage(calibMode, "DHCP_DISC_HN=0,BUILD_OPT_ULASMADI");
+#endif
     cyw43_arch_lwip_begin();
     struct netif *sta = NULL;
     { struct netif *n; NETIF_FOREACH(n) { if (ip4_addr_get_u32(netif_ip4_addr(n)) == staIPu32) { sta = n; break; } } }
@@ -2457,9 +2462,15 @@ void setupWiFi() {
         changeTcpPort(cfgTcpPort);
     }
 
-    // mDNS: picolor.local → TCP erişimi için (çift çağrıya karşı korunmalı)
+    // mDNS: <hostname>.local → TCP erişimi için (çift çağrıya karşı korunmalı)
     static bool mdnsStarted = false;
-    if (!mdnsStarted) { MDNS.begin("picolor"); mdnsStarted = true; }
+    if (!mdnsStarted) {
+        MDNS.begin(g_wifiHostname);
+        mdnsStarted = true;
+        char mdnsLog[80];
+        snprintf(mdnsLog, sizeof(mdnsLog), "MDNS_STARTED,HN=%s", g_wifiHostname);
+        logStartupMessage(calibMode, mdnsLog);
+    }
 
     // tcpRxLen dizisini sıfırla
     for (int i = 0; i < MAX_TCP_CLIENTS; i++) tcpRxLen[i] = 0;
