@@ -2288,12 +2288,30 @@ static void applyHostnameBeforeBegin() {
 }
 
 /*
+ * applyHostnameAfterBegin
+ * -----------------------
+ * WiFi.begin() STA netif'i senkron olarak oluşturur; association asenkron devam eder.
+ * begin() hemen sonrasında NETIF_FOREACH artık STA netif'i bulur.
+ * DHCP DISCOVER, association tamamlanınca (~100-1000 ms sonra) gönderilir —
+ * o ana kadar hostname netif'e yazılmış olur, option 12 DISCOVER'a girer.
+ */
+static void applyHostnameAfterBegin() {
+    cyw43_arch_lwip_begin();
+    struct netif *n;
+    NETIF_FOREACH(n) { netif_set_hostname(n, g_wifiHostname); }
+    cyw43_arch_lwip_end();
+}
+
+/*
  * applyDhcpHostname
  * -----------------
- * STA netif'i WiFi.begin() sırasında oluşturulur — applyHostnameBeforeBegin()
- * o anda NETIF_FOREACH ile bulamaz çünkü henüz mevcut değildir.
- * Bu yüzden bağlantı kurulduktan SONRA STA netif'i IP ile bulup hostname
- * ayarlanır, ardından dhcp_renew() ile modemin client tablosunu güncelliyoruz.
+ * Bağlantı kurulduktan sonra STA netif'i IP ile bulur, hostname ayarlar ve
+ * dhcp_renew() ile DHCPREQUEST gönderir. Bu istek option 12 içerir; bazı
+ * modemler hostname'i DHCPREQUEST'ten de günceller.
+ * Not: dhcp_stop()+dhcp_start() KULLANILMAZ — dhcp_stop() CYW43 callback'ini
+ * tetikleyerek fiziksel WiFi kopuşuna neden olur, DISCOVER asla router'a ulaşmaz.
+ * Asıl DISCOVER hostname'i applyHostnameAfterBegin() ile WiFi.begin() hemen
+ * sonrasında netif'e yazılarak sağlanır.
  */
 static void applyDhcpHostname() {
     if (g_hostnameApplied) return;
@@ -2311,11 +2329,10 @@ static void applyDhcpHostname() {
     struct netif *sta = NULL;
     { struct netif *n; NETIF_FOREACH(n) { if (ip4_addr_get_u32(netif_ip4_addr(n)) == staIPu32) { sta = n; break; } } }
     if (sta) {
-        dhcp_stop(sta);                          // callback resets hostname — intentional
-        netif_set_hostname(sta, g_wifiHostname); // set AFTER callback, BEFORE discover
-        dhcp_start(sta);
+        netif_set_hostname(sta, g_wifiHostname);
+        dhcp_renew(sta); // DHCPREQUEST with option 12 — no disconnect
         g_hostnameApplied = true;
-        snprintf(dbg, sizeof(dbg), "DHCP_HN:APPLIED,HN=%s",
+        snprintf(dbg, sizeof(dbg), "DHCP_HN:RENEW,HN=%s",
                  sta->hostname ? sta->hostname : "(null)");
         cyw43_arch_lwip_end();
         logStartupMessage(calibMode, dbg);
@@ -2337,6 +2354,7 @@ void reconnectWiFiSTA() {
         staReconnectAttempts = 0;  // manuel bağlantıda sayacı sıfırla
         applyHostnameBeforeBegin();
         WiFi.begin(wifiStaSSID, wifiStaPass);
+        applyHostnameAfterBegin();
         printStatusMessage(calibMode, "WIFI_STA_RECONNECTING");
     } else {
         printStatusMessage(calibMode, "WIFI_STA_NO_CREDENTIALS");
@@ -2406,6 +2424,7 @@ void setupWiFi() {
         }
         applyHostnameBeforeBegin();
         WiFi.begin(wifiStaSSID, wifiStaPass);
+        applyHostnameAfterBegin(); // STA netif artık listede — DISCOVER öncesi hostname yaz
         logStartupMessage(calibMode, "WIFI_STA_CONNECTING");
         staLedConnecting      = true;
         staLedConnectingStart = millis();
@@ -2614,6 +2633,7 @@ void handleWiFiReconnect(unsigned long currentMillis) {
         g_hostnameApplied = false;
         applyHostnameBeforeBegin();
         WiFi.begin(wifiStaSSID, wifiStaPass);
+        applyHostnameAfterBegin();
         staReconnectAttempts++;
         char msg[48];
         snprintf(msg, sizeof(msg), "WIFI_STA_RECONNECTING,ATTEMPT=%d/%d",
