@@ -282,6 +282,7 @@ unsigned long gecerliUykuSuresi    = 1000; // Hesaplanan uyku süresi (ms)
 unsigned long lastActivityTime     = 0;   // Son aktivite zamanı
 unsigned long lastButtonPress      = 0;   // Son buton basış zamanı
 bool          ledsActive           = false; // LED'ler şu an açık mı?
+bool          tcsAwake             = true;  // TCS34725 uyanık mı? (tcs.begin() sonrası true)
 
 // ============================================================
 // VERİ TAMPONU — son 15 dakika (900 saniye) RAM'de tutulur
@@ -625,7 +626,23 @@ void calculateLuxAndTemp(uint16_t raw_r, uint16_t raw_g, uint16_t raw_b, uint16_
  * Normalize    : 0–100 = kalibre / NORM_INPUT_MAX * 100
  * Güvenlik     : tüm faktörler minimum 0.05'e kırpılır (sıfır bölme önlemi)
  */
+/*
+ * ensureTcsAwake
+ * --------------
+ * Sensör uyutulmuşsa (tcsAwake=false) tcs.enable() çağırır.
+ * Adafruit kütüphanesi enable() içinde entegrasyon süresini (50 ms) bekler;
+ * bu süre geçmeden getRawData() doğru değer vermez.
+ * Sensör zaten uyanıksa hiçbir şey yapmaz (no-op).
+ */
+void ensureTcsAwake() {
+    if (!tcsAwake) {
+        tcs.enable();
+        tcsAwake = true;
+    }
+}
+
 void getCalibratedColor_stabil(float &cR, float &cG, float &cB) {
+    ensureTcsAwake();
     uint16_t r, g, b, c;
     tcs.getRawData(&r, &g, &b, &c);
 
@@ -658,6 +675,7 @@ void getCalibratedColor_stabil(float &cR, float &cG, float &cB) {
  * Alt sınır: 1000.0  Üst sınır: 65535 * 4 (teorik maks)
  */
 void getCalibratedColor_dinamik(float &cR, float &cG, float &cB) {
+    ensureTcsAwake();
     uint16_t r, g, b, c;
     tcs.getRawData(&r, &g, &b, &c);
 
@@ -957,6 +975,7 @@ void sendAverageReading(int seconds, int mode) {
  * Format: OUT_SINGLE (dual), meta: "single_dual"
  */
 void sendSingleDualReading(int mode) {
+    ensureTcsAwake();
     uint16_t r, g, b, c;
     tcs.getRawData(&r, &g, &b, &c);
 
@@ -1021,6 +1040,8 @@ void sendAverageDualReading(int seconds, int mode) {
 void startLiveStream(int mode) {
     testModeActive = true;
     calibMode      = mode;
+    WiFi.setSleep(false); // canlı akışta gecikme artmasın
+    ensureTcsAwake();     // sensör sürekli açık kalacak
 
     char meta[48];
     snprintf(meta, sizeof(meta), "LIVE_START_MODE=%s", (mode == 0) ? "STABIL" : "DINAMIK");
@@ -1036,6 +1057,8 @@ void startLiveStream(int mode) {
 void startLiveDualStream(int mode) {
     testModeActive = true;
     calibMode      = mode;
+    WiFi.setSleep(false);
+    ensureTcsAwake();
 
     char meta[64];
     snprintf(meta, sizeof(meta), "LIVE_DUAL_START,mode=%s", (mode == 0) ? "STABIL" : "DINAMIK");
@@ -1049,6 +1072,7 @@ void startLiveDualStream(int mode) {
  */
 void stopLiveStream() {
     testModeActive = false;
+    WiFi.setSleep(true); // bekleme moduna dön
     printStatusMessage(calibMode, "LIVE_STOP");
 }
 
@@ -1073,6 +1097,7 @@ void stopLiveStream() {
  *      — mevcut PC ayrıştırıcısıyla uyumluluk için korunmuştur.
  */
 void sendFullData() {
+    ensureTcsAwake();
     uint16_t r, g, b, c;
     tcs.getRawData(&r, &g, &b, &c);
 
@@ -2023,6 +2048,9 @@ void handleDataSampling(unsigned long currentMillis) {
     if (currentMillis - lastSampleTime < 1000) return;
     lastSampleTime = currentMillis;
 
+    // Sensör uyanık değilse aç (Adafruit enable() içinde ~50 ms bekler)
+    ensureTcsAwake();
+
     uint16_t r, g, b, c;
     tcs.getRawData(&r, &g, &b, &c);
 
@@ -2048,6 +2076,13 @@ void handleDataSampling(unsigned long currentMillis) {
         calculateLuxAndTemp(r, g, b, c, lux, colorTemp);
         appendToCSV(r, g, b, c, cR, cG, cB, lux, colorTemp);
     }
+
+    // Canlı akış yoksa sensörü uyut: 1000 ms'nin ~950 ms'si uyku
+    // Sonraki ensureTcsAwake() çağrısı tekrar açacak (50 ms enable bekleme)
+    if (!testModeActive) {
+        tcs.disable();
+        tcsAwake = false;
+    }
 }
 
 /*
@@ -2066,6 +2101,7 @@ void handleTestMode(unsigned long currentMillis) {
     if (currentMillis - lastTestPrint < 300) return;
 
     lastTestPrint = currentMillis;
+    ensureTcsAwake(); // canlı akışta sensör her 300 ms'de okunur, uyanık kalmalı
 
     if (dualOutputActive) {
         uint16_t r, g, b, c;
@@ -2471,6 +2507,10 @@ void setupWiFi() {
         snprintf(mdnsLog, sizeof(mdnsLog), "MDNS_STARTED,HN=%s", g_wifiHostname);
         logStartupMessage(calibMode, mdnsLog);
     }
+
+    // WiFi modem sleep: CYW43439 beacon araları uyur (~100 ms gecikme kabul edilebilir)
+    // AP modunda da geçerlidir; canlı akış başlayınca otomatik kapatılır
+    WiFi.setSleep(true);
 
     // tcpRxLen dizisini sıfırla
     for (int i = 0; i < MAX_TCP_CLIENTS; i++) tcpRxLen[i] = 0;
