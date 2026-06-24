@@ -1768,6 +1768,7 @@ void processCommand(String cmd) {
     // ====================================================
     else if (cmd == "RAW") {
         testModeActive = false;
+        ensureTcsAwake();
         uint16_t r, g, b, c;
         tcs.getRawData(&r, &g, &b, &c);
         // İlk satır: RGB
